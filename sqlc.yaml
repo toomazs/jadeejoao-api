@@ -46,3 +46,12 @@ sql:
         out: "internal/content/contentdb"
         sql_package: "pgx/v5"
         overrides: *overrides
+  - engine: "postgresql"
+    schema: "db/migrations"
+    queries: "db/queries/guests.sql"
+    gen:
+      go:
+        package: "guestsdb"
+        out: "internal/guests/guestsdb"
+        sql_package: "pgx/v5"
+        overrides: *overrides

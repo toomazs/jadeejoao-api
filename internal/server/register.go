@@ -8,6 +8,7 @@ import (
 	"github.com/danielgtaylor/huma/v2"
 
 	"github.com/jadeejoao/jadeejoao-api/internal/content"
+	"github.com/jadeejoao/jadeejoao-api/internal/guests"
 )
 
 // Register mounts every operation of every module. It must stay deterministic:
@@ -15,6 +16,7 @@ import (
 func Register(api huma.API, deps Deps) {
 	registerHealth(api, deps)
 	content.RegisterPublic(api, deps.Content)
+	guests.RegisterPublic(api, deps.Guests)
 }
 
 // HealthOutput is the healthcheck response body.

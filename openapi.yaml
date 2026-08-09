@@ -203,6 +203,34 @@ components:
       required:
         - title
       type: object
+    GroupView:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - https://example.com/schemas/GroupView.json
+          format: uri
+          readOnly: true
+          type: string
+        group_id:
+          format: uuid
+          type: string
+        label:
+          examples:
+            - Eduardo e família
+          type: string
+        members:
+          items:
+            $ref: "#/components/schemas/MemberView"
+          type:
+            - array
+            - "null"
+      required:
+        - group_id
+        - label
+        - members
+      type: object
     HealthOutputBody:
       additionalProperties: false
       properties:
@@ -283,6 +311,58 @@ components:
         - name
         - shuttle_served
       type: object
+    LookupInputBody:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - https://example.com/schemas/LookupInputBody.json
+          format: uri
+          readOnly: true
+          type: string
+        full_name:
+          description: Full name as written on the invitation. Matching is exact after normalization (case and accents ignored).
+          examples:
+            - Eduardo Silva
+          maxLength: 200
+          minLength: 1
+          type: string
+      required:
+        - full_name
+      type: object
+    MemberView:
+      additionalProperties: false
+      properties:
+        attending:
+          enum:
+            - pending
+            - "yes"
+            - "no"
+          type: string
+        category:
+          enum:
+            - adult
+            - child
+            - baby
+            - elderly
+          type: string
+        full_name:
+          examples:
+            - Eduardo Silva
+          type: string
+        guest_id:
+          format: uuid
+          type: string
+        is_primary:
+          description: Whether this guest is the group's primary contact.
+          type: boolean
+      required:
+        - guest_id
+        - full_name
+        - is_primary
+        - attending
+      type: object
     MessagesIntroPayload:
       additionalProperties: false
       properties:
@@ -336,6 +416,42 @@ components:
       required:
         - time
         - label
+      type: object
+    RSVPAnswer:
+      additionalProperties: false
+      properties:
+        attending:
+          enum:
+            - "yes"
+            - "no"
+          type: string
+        guest_id:
+          format: uuid
+          type: string
+      required:
+        - guest_id
+        - attending
+      type: object
+    RSVPInputBody:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - https://example.com/schemas/RSVPInputBody.json
+          format: uri
+          readOnly: true
+          type: string
+        responses:
+          description: Exactly one answer per member of the group.
+          items:
+            $ref: "#/components/schemas/RSVPAnswer"
+          minItems: 1
+          type:
+            - array
+            - "null"
+      required:
+        - responses
       type: object
     RSVPPayload:
       additionalProperties: false
@@ -464,6 +580,65 @@ paths:
       summary: Get site content
       tags:
         - content
+  /api/v1/guests/lookup:
+    post:
+      description: Exact normalized full-name match. Returns the guest group with every member's current RSVP state. No fuzzy matching or suggestions — misses return 404.
+      operationId: lookup-guest
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LookupInputBody"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GroupView"
+          description: OK
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Find your invitation
+      tags:
+        - guests
+  /api/v1/guests/{group_id}/rsvp:
+    post:
+      description: "Records one yes/no per member of the group. Idempotent: resubmitting overwrites earlier answers. Rejected after the RSVP deadline."
+      operationId: submit-rsvp
+      parameters:
+        - in: path
+          name: group_id
+          required: true
+          schema:
+            format: uuid
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RSVPInputBody"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GroupView"
+          description: OK
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Submit RSVP
+      tags:
+        - guests
   /healthz:
     get:
       description: "Railway healthcheck endpoint: returns 200 when the service and its database connection are healthy."
