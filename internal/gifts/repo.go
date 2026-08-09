@@ -3,6 +3,7 @@ package gifts
 import (
 	"context"
 	"errors"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -105,13 +106,95 @@ func (r *pgRepo) CreateContribution(ctx context.Context, req NewContribution) (C
 	if err := tx.Commit(ctx); err != nil {
 		return Contribution{}, err
 	}
-	out := Contribution{
-		ID: row.ID, GiftID: row.GiftID, ContributorName: row.ContributorName,
-		AmountCentavos: row.AmountCentavos, Status: row.Status,
+	return contributionFromRow(row.ID, row.GiftID, row.GroupID, row.ContributorName,
+		row.AmountCentavos, row.Status, row.CreatedAt, row.ConfirmedAt), nil
+}
+
+func (r *pgRepo) InsertGift(ctx context.Context, p GiftParams) (uuid.UUID, error) {
+	return r.q.InsertGift(ctx, giftsdb.InsertGiftParams{
+		Title: p.Title, Description: p.Description, ImageUrl: p.ImageURL,
+		GoalCentavos: p.GoalCentavos, QuotaCentavos: p.QuotaCentavos, MaxUnits: p.MaxUnits,
+		Active: p.Active, Sort: p.Sort,
+	})
+}
+
+func (r *pgRepo) UpdateGift(ctx context.Context, id uuid.UUID, p GiftParams) error {
+	affected, err := r.q.UpdateGift(ctx, giftsdb.UpdateGiftParams{
+		ID: id, Title: p.Title, Description: p.Description, ImageUrl: p.ImageURL,
+		GoalCentavos: p.GoalCentavos, QuotaCentavos: p.QuotaCentavos, MaxUnits: p.MaxUnits,
+		Active: p.Active, Sort: p.Sort,
+	})
+	if err != nil {
+		return err
 	}
-	if row.GroupID.Valid {
-		id := row.GroupID.UUID
-		out.GroupID = &id
+	if affected == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+func (r *pgRepo) CountContributions(ctx context.Context, giftID uuid.UUID) (int64, error) {
+	return r.q.CountGiftContributions(ctx, giftID)
+}
+
+func (r *pgRepo) DeleteGiftRow(ctx context.Context, id uuid.UUID) error {
+	affected, err := r.q.DeleteGiftRow(ctx, id)
+	if err != nil {
+		return err
+	}
+	if affected == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+func (r *pgRepo) DeactivateGift(ctx context.Context, id uuid.UUID) error {
+	affected, err := r.q.DeactivateGift(ctx, id)
+	if err != nil {
+		return err
+	}
+	if affected == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+func (r *pgRepo) ListContributions(ctx context.Context, statusFilter string) ([]ContributionDetail, error) {
+	rows, err := r.q.ListContributions(ctx, statusFilter)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]ContributionDetail, len(rows))
+	for i, row := range rows {
+		out[i] = ContributionDetail{
+			Contribution: contributionFromRow(row.ID, row.GiftID, row.GroupID, row.ContributorName,
+				row.AmountCentavos, row.Status, row.CreatedAt, row.ConfirmedAt),
+			GiftTitle: row.GiftTitle,
+		}
 	}
 	return out, nil
+}
+
+func (r *pgRepo) UpdateContributionStatus(ctx context.Context, id uuid.UUID, status string) (Contribution, error) {
+	row, err := r.q.UpdateContributionStatus(ctx, giftsdb.UpdateContributionStatusParams{ID: id, Status: status})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Contribution{}, ErrNotFound
+	}
+	if err != nil {
+		return Contribution{}, err
+	}
+	return contributionFromRow(row.ID, row.GiftID, row.GroupID, row.ContributorName,
+		row.AmountCentavos, row.Status, row.CreatedAt, row.ConfirmedAt), nil
+}
+
+func contributionFromRow(id, giftID uuid.UUID, groupID uuid.NullUUID, name string, amount int64, status string, createdAt time.Time, confirmedAt *time.Time) Contribution {
+	c := Contribution{
+		ID: id, GiftID: giftID, ContributorName: name,
+		AmountCentavos: amount, Status: status, CreatedAt: createdAt, ConfirmedAt: confirmedAt,
+	}
+	if groupID.Valid {
+		gid := groupID.UUID
+		c.GroupID = &gid
+	}
+	return c
 }

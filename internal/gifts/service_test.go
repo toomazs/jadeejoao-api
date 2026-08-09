@@ -14,8 +14,9 @@ func ptr[T any](v T) *T { return &v }
 // fakeRepo mirrors pgRepo's commit-point semantics using the same pure
 // validation helpers, so service and handler tests exercise realistic paths.
 type fakeRepo struct {
-	gifts   []Gift
-	inserts int
+	gifts    []Gift
+	contribs []Contribution
+	inserts  int
 }
 
 func (f *fakeRepo) ListGifts(_ context.Context, onlyActive bool) ([]Gift, error) {
@@ -57,8 +58,80 @@ func (f *fakeRepo) CreateContribution(ctx context.Context, req NewContribution) 
 			f.gifts[i].DeclaredCentavos += req.AmountCentavos
 		}
 	}
-	return Contribution{ID: uuid.New(), GiftID: req.GiftID, GroupID: req.GroupID,
-		ContributorName: req.ContributorName, AmountCentavos: req.AmountCentavos, Status: "declared"}, nil
+	c := Contribution{ID: uuid.New(), GiftID: req.GiftID, GroupID: req.GroupID,
+		ContributorName: req.ContributorName, AmountCentavos: req.AmountCentavos, Status: "declared"}
+	f.contribs = append(f.contribs, c)
+	return c, nil
+}
+
+func (f *fakeRepo) InsertGift(_ context.Context, p GiftParams) (uuid.UUID, error) {
+	g := Gift{ID: uuid.New(), Title: p.Title, Description: p.Description, ImageURL: p.ImageURL,
+		GoalCentavos: p.GoalCentavos, QuotaCentavos: p.QuotaCentavos, MaxUnits: p.MaxUnits,
+		Active: p.Active, Sort: p.Sort}
+	f.gifts = append(f.gifts, g)
+	return g.ID, nil
+}
+
+func (f *fakeRepo) UpdateGift(_ context.Context, id uuid.UUID, p GiftParams) error {
+	for i := range f.gifts {
+		if f.gifts[i].ID == id {
+			f.gifts[i].Title, f.gifts[i].Description, f.gifts[i].ImageURL = p.Title, p.Description, p.ImageURL
+			f.gifts[i].GoalCentavos, f.gifts[i].QuotaCentavos, f.gifts[i].MaxUnits = p.GoalCentavos, p.QuotaCentavos, p.MaxUnits
+			f.gifts[i].Active, f.gifts[i].Sort = p.Active, p.Sort
+			return nil
+		}
+	}
+	return ErrNotFound
+}
+
+func (f *fakeRepo) CountContributions(_ context.Context, giftID uuid.UUID) (int64, error) {
+	var n int64
+	for _, c := range f.contribs {
+		if c.GiftID == giftID {
+			n++
+		}
+	}
+	return n, nil
+}
+
+func (f *fakeRepo) DeleteGiftRow(_ context.Context, id uuid.UUID) error {
+	for i := range f.gifts {
+		if f.gifts[i].ID == id {
+			f.gifts = append(f.gifts[:i], f.gifts[i+1:]...)
+			return nil
+		}
+	}
+	return ErrNotFound
+}
+
+func (f *fakeRepo) DeactivateGift(_ context.Context, id uuid.UUID) error {
+	for i := range f.gifts {
+		if f.gifts[i].ID == id {
+			f.gifts[i].Active = false
+			return nil
+		}
+	}
+	return ErrNotFound
+}
+
+func (f *fakeRepo) ListContributions(_ context.Context, statusFilter string) ([]ContributionDetail, error) {
+	var out []ContributionDetail
+	for _, c := range f.contribs {
+		if statusFilter == "" || c.Status == statusFilter {
+			out = append(out, ContributionDetail{Contribution: c})
+		}
+	}
+	return out, nil
+}
+
+func (f *fakeRepo) UpdateContributionStatus(_ context.Context, id uuid.UUID, status string) (Contribution, error) {
+	for i := range f.contribs {
+		if f.contribs[i].ID == id {
+			f.contribs[i].Status = status
+			return f.contribs[i], nil
+		}
+	}
+	return Contribution{}, ErrNotFound
 }
 
 var testIdentity = PixIdentity{Key: "casamento@jadeejoao.com.br", MerchantName: "JADE E JOAO", MerchantCity: "ATIBAIA"}

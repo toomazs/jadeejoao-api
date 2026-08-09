@@ -13,6 +13,7 @@ import (
 	"github.com/jadeejoao/jadeejoao-api/internal/content"
 	"github.com/jadeejoao/jadeejoao-api/internal/gifts"
 	"github.com/jadeejoao/jadeejoao-api/internal/guests"
+	"github.com/jadeejoao/jadeejoao-api/internal/media"
 	"github.com/jadeejoao/jadeejoao-api/internal/messages"
 	"github.com/jadeejoao/jadeejoao-api/internal/platform"
 )
@@ -26,6 +27,8 @@ type Deps struct {
 	Guests   *guests.Service
 	Gifts    *gifts.Service
 	Messages *messages.Service
+	Media    *media.Service
+	Auth     AdminAuthenticator
 }
 
 // NewRouter builds the production HTTP handler: middleware stack + Huma API.
@@ -48,6 +51,14 @@ func NewAPI(r chi.Router, deps Deps) huma.API {
 		"(Postgres + Storage). Public surface serves the one-page site; " +
 		"/api/v1/admin/** requires a Supabase Auth JWT. All guest-facing " +
 		"messages are in Brazilian Portuguese."
+	config.Components.SecuritySchemes = map[string]*huma.SecurityScheme{
+		"supabaseJWT": {
+			Type:         "http",
+			Scheme:       "bearer",
+			BearerFormat: "JWT",
+			Description:  "Supabase Auth access token of one of the couple's accounts (ADMIN_EMAILS).",
+		},
+	}
 	api := humachi.New(r, config)
 	Register(api, deps)
 	return api

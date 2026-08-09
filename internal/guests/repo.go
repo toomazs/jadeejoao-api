@@ -58,6 +58,33 @@ func (r *pgRepo) ListMembers(ctx context.Context, groupID uuid.UUID) ([]Member, 
 	return out, nil
 }
 
+func (r *pgRepo) ListAllGroups(ctx context.Context) ([]Group, error) {
+	rows, err := r.q.ListAllGroups(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]Group, len(rows))
+	for i, row := range rows {
+		out[i] = Group{ID: row.ID, Label: row.Label}
+	}
+	return out, nil
+}
+
+func (r *pgRepo) ListAllGuests(ctx context.Context) (map[uuid.UUID][]Member, error) {
+	rows, err := r.q.ListAllGuests(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[uuid.UUID][]Member)
+	for _, row := range rows {
+		out[row.GroupID] = append(out[row.GroupID], Member{
+			ID: row.ID, FullName: row.FullName, IsPrimary: row.IsPrimary,
+			Category: row.Category, Attending: row.Attending,
+		})
+	}
+	return out, nil
+}
+
 // UpdateAttendances applies every answer in one transaction; any update that
 // does not match exactly one guest of the group aborts the whole submission.
 func (r *pgRepo) UpdateAttendances(ctx context.Context, groupID uuid.UUID, updates []AttendanceUpdate) error {

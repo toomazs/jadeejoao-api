@@ -34,3 +34,43 @@ where gift_id = $1 and status <> 'cancelled';
 insert into contributions (gift_id, group_id, contributor_name, amount_centavos)
 values ($1, $2, $3, $4)
 returning id, gift_id, group_id, contributor_name, amount_centavos, status, created_at, confirmed_at;
+
+-- name: InsertGift :one
+insert into gifts (title, description, image_url, goal_centavos, quota_centavos, max_units, active, sort)
+values ($1, $2, $3, $4, $5, $6, $7, $8)
+returning id;
+
+-- name: UpdateGift :execrows
+update gifts
+set title = $2, description = $3, image_url = $4, goal_centavos = $5,
+    quota_centavos = $6, max_units = $7, active = $8, sort = $9
+where id = $1;
+
+-- name: CountGiftContributions :one
+select count(*)
+from contributions
+where gift_id = $1;
+
+-- name: DeleteGiftRow :execrows
+delete from gifts
+where id = $1;
+
+-- name: DeactivateGift :execrows
+update gifts
+set active = false
+where id = $1;
+
+-- name: ListContributions :many
+select c.id, c.gift_id, g.title as gift_title, c.group_id, c.contributor_name,
+       c.amount_centavos, c.status, c.created_at, c.confirmed_at
+from contributions c
+join gifts g on g.id = c.gift_id
+where (@status_filter::text = '' or c.status = @status_filter::text)
+order by c.created_at desc;
+
+-- name: UpdateContributionStatus :one
+update contributions
+set status = @status::text,
+    confirmed_at = case when @status::text = 'confirmed' then now() else confirmed_at end
+where id = @id
+returning id, gift_id, group_id, contributor_name, amount_centavos, status, created_at, confirmed_at;

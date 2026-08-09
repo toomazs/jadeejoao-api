@@ -1,7 +1,9 @@
 package guests
 
 import (
+	"bytes"
 	"context"
+	"encoding/csv"
 	"errors"
 	"fmt"
 	"time"
@@ -47,6 +49,25 @@ type Repo interface {
 	GetGroup(ctx context.Context, id uuid.UUID) (Group, error)
 	ListMembers(ctx context.Context, groupID uuid.UUID) ([]Member, error)
 	UpdateAttendances(ctx context.Context, groupID uuid.UUID, updates []AttendanceUpdate) error
+	ListAllGroups(ctx context.Context) ([]Group, error)
+	ListAllGuests(ctx context.Context) (map[uuid.UUID][]Member, error)
+}
+
+// GroupWithMembers is one dashboard row.
+type GroupWithMembers struct {
+	Group
+	Members []Member
+}
+
+// Headcounts aggregates RSVP state for planning.
+type Headcounts struct {
+	Total   int
+	Yes     int
+	No      int
+	Pending int
+	// YesByCategory counts confirmed guests per category; guests without a
+	// category land under "uncategorized".
+	YesByCategory map[string]int
 }
 
 // DeadlineSource yields the RSVP deadline (a date string, possibly empty).
@@ -126,6 +147,81 @@ func (s *Service) SubmitRSVP(ctx context.Context, groupID uuid.UUID, updates []A
 		return Group{}, nil, err
 	}
 	return s.groupWithMembers(ctx, groupID)
+}
+
+// AdminDashboard returns every group with members plus aggregate headcounts.
+func (s *Service) AdminDashboard(ctx context.Context) ([]GroupWithMembers, Headcounts, error) {
+	groups, err := s.repo.ListAllGroups(ctx)
+	if err != nil {
+		return nil, Headcounts{}, err
+	}
+	membersByGroup, err := s.repo.ListAllGuests(ctx)
+	if err != nil {
+		return nil, Headcounts{}, err
+	}
+	counts := Headcounts{YesByCategory: map[string]int{}}
+	out := make([]GroupWithMembers, 0, len(groups))
+	for _, g := range groups {
+		members := membersByGroup[g.ID]
+		out = append(out, GroupWithMembers{Group: g, Members: members})
+		for _, m := range members {
+			counts.Total++
+			switch m.Attending {
+			case "yes":
+				counts.Yes++
+				category := "uncategorized"
+				if m.Category != nil {
+					category = *m.Category
+				}
+				counts.YesByCategory[category]++
+			case "no":
+				counts.No++
+			default:
+				counts.Pending++
+			}
+		}
+	}
+	return out, counts, nil
+}
+
+// categoryPT and attendingPT translate storage enums for the CSV export the
+// couple reads.
+var categoryPT = map[string]string{"adult": "adulto", "child": "criança", "baby": "bebê", "elderly": "idoso"}
+
+var attendingPT = map[string]string{"pending": "pendente", "yes": "sim", "no": "não"}
+
+// ExportCSV renders the guest list as a spreadsheet-friendly CSV (PT-BR
+// headers and values).
+func (s *Service) ExportCSV(ctx context.Context) ([]byte, error) {
+	groups, _, err := s.AdminDashboard(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var buf bytes.Buffer
+	w := csv.NewWriter(&buf)
+	if err := w.Write([]string{"grupo", "nome", "principal", "categoria", "presenca"}); err != nil {
+		return nil, err
+	}
+	for _, g := range groups {
+		for _, m := range g.Members {
+			principal := ""
+			if m.IsPrimary {
+				principal = "sim"
+			}
+			category := ""
+			if m.Category != nil {
+				category = categoryPT[*m.Category]
+			}
+			if err := w.Write([]string{g.Label, m.FullName, principal, category, attendingPT[m.Attending]}); err != nil {
+				return nil, err
+			}
+		}
+	}
+	w.Flush()
+	if err := w.Error(); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
 }
 
 func (s *Service) groupWithMembers(ctx context.Context, groupID uuid.UUID) (Group, []Member, error) {

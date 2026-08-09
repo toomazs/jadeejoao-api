@@ -10,7 +10,9 @@ import (
 	"github.com/jadeejoao/jadeejoao-api/internal/content"
 	"github.com/jadeejoao/jadeejoao-api/internal/gifts"
 	"github.com/jadeejoao/jadeejoao-api/internal/guests"
+	"github.com/jadeejoao/jadeejoao-api/internal/media"
 	"github.com/jadeejoao/jadeejoao-api/internal/messages"
+	"github.com/jadeejoao/jadeejoao-api/internal/platform"
 )
 
 // Register mounts every operation of every module. It must stay deterministic:
@@ -21,6 +23,18 @@ func Register(api huma.API, deps Deps) {
 	guests.RegisterPublic(api, deps.Guests)
 	gifts.RegisterPublic(api, deps.Gifts)
 	messages.RegisterPublic(api, deps.Messages)
+
+	admin := huma.NewGroup(api, platform.APIBase+"/admin")
+	admin.UseSimpleModifier(func(op *huma.Operation) {
+		op.Security = []map[string][]string{{"supabaseJWT": {}}}
+		op.Tags = append(op.Tags, "admin")
+	})
+	admin.UseMiddleware(adminAuthMiddleware(api, deps.Auth))
+	content.RegisterAdmin(admin, deps.Content)
+	guests.RegisterAdmin(admin, deps.Guests)
+	gifts.RegisterAdmin(admin, deps.Gifts)
+	messages.RegisterAdmin(admin, deps.Messages)
+	media.RegisterAdmin(admin, deps.Media)
 }
 
 // HealthOutput is the healthcheck response body.

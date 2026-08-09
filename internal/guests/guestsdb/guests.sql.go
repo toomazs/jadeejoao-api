@@ -58,6 +58,79 @@ func (q *Queries) GetGuestGroup(ctx context.Context, id uuid.UUID) (GetGuestGrou
 	return i, err
 }
 
+const listAllGroups = `-- name: ListAllGroups :many
+select id, label
+from guest_groups
+order by label, id
+`
+
+type ListAllGroupsRow struct {
+	ID    uuid.UUID
+	Label string
+}
+
+func (q *Queries) ListAllGroups(ctx context.Context) ([]ListAllGroupsRow, error) {
+	rows, err := q.db.Query(ctx, listAllGroups)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListAllGroupsRow
+	for rows.Next() {
+		var i ListAllGroupsRow
+		if err := rows.Scan(&i.ID, &i.Label); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listAllGuests = `-- name: ListAllGuests :many
+select id, group_id, full_name, is_primary, category, attending
+from guests
+order by is_primary desc, full_name
+`
+
+type ListAllGuestsRow struct {
+	ID        uuid.UUID
+	GroupID   uuid.UUID
+	FullName  string
+	IsPrimary bool
+	Category  *string
+	Attending string
+}
+
+func (q *Queries) ListAllGuests(ctx context.Context) ([]ListAllGuestsRow, error) {
+	rows, err := q.db.Query(ctx, listAllGuests)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListAllGuestsRow
+	for rows.Next() {
+		var i ListAllGuestsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.GroupID,
+			&i.FullName,
+			&i.IsPrimary,
+			&i.Category,
+			&i.Attending,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listGroupMembers = `-- name: ListGroupMembers :many
 select id, full_name, is_primary, category, attending
 from guests

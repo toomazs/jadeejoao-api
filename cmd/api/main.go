@@ -18,6 +18,7 @@ import (
 	"github.com/jadeejoao/jadeejoao-api/internal/content"
 	"github.com/jadeejoao/jadeejoao-api/internal/gifts"
 	"github.com/jadeejoao/jadeejoao-api/internal/guests"
+	"github.com/jadeejoao/jadeejoao-api/internal/media"
 	"github.com/jadeejoao/jadeejoao-api/internal/messages"
 	"github.com/jadeejoao/jadeejoao-api/internal/platform"
 	"github.com/jadeejoao/jadeejoao-api/internal/server"
@@ -55,6 +56,11 @@ func run() error {
 	}
 	defer pool.Close()
 
+	storage, err := platform.NewStorage(ctx, cfg)
+	if err != nil {
+		return err
+	}
+
 	contentSvc := content.NewService(content.NewRepo(pool))
 	deps := server.Deps{
 		Pool:    pool,
@@ -66,6 +72,8 @@ func run() error {
 			MerchantCity: cfg.PIXMerchantCity,
 		}),
 		Messages: messages.NewService(messages.NewRepo(pool)),
+		Media:    media.NewService(media.NewRepo(pool), storage),
+		Auth:     platform.NewAuthValidator(cfg.SupabaseJWKSURL, cfg.SupabaseURL+"/auth/v1", cfg.AdminEmails),
 	}
 
 	srv := &http.Server{

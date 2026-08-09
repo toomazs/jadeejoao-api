@@ -7,9 +7,50 @@ package giftsdb
 
 import (
 	"context"
+	"time"
 
 	"github.com/google/uuid"
 )
+
+const countGiftContributions = `-- name: CountGiftContributions :one
+select count(*)
+from contributions
+where gift_id = $1
+`
+
+func (q *Queries) CountGiftContributions(ctx context.Context, giftID uuid.UUID) (int64, error) {
+	row := q.db.QueryRow(ctx, countGiftContributions, giftID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
+const deactivateGift = `-- name: DeactivateGift :execrows
+update gifts
+set active = false
+where id = $1
+`
+
+func (q *Queries) DeactivateGift(ctx context.Context, id uuid.UUID) (int64, error) {
+	result, err := q.db.Exec(ctx, deactivateGift, id)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const deleteGiftRow = `-- name: DeleteGiftRow :execrows
+delete from gifts
+where id = $1
+`
+
+func (q *Queries) DeleteGiftRow(ctx context.Context, id uuid.UUID) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteGiftRow, id)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
 
 const getGiftForUpdate = `-- name: GetGiftForUpdate :one
 select id, quota_centavos, max_units, active
@@ -115,6 +156,90 @@ func (q *Queries) InsertContribution(ctx context.Context, arg InsertContribution
 	return i, err
 }
 
+const insertGift = `-- name: InsertGift :one
+insert into gifts (title, description, image_url, goal_centavos, quota_centavos, max_units, active, sort)
+values ($1, $2, $3, $4, $5, $6, $7, $8)
+returning id
+`
+
+type InsertGiftParams struct {
+	Title         string
+	Description   string
+	ImageUrl      *string
+	GoalCentavos  *int64
+	QuotaCentavos *int64
+	MaxUnits      *int32
+	Active        bool
+	Sort          int32
+}
+
+func (q *Queries) InsertGift(ctx context.Context, arg InsertGiftParams) (uuid.UUID, error) {
+	row := q.db.QueryRow(ctx, insertGift,
+		arg.Title,
+		arg.Description,
+		arg.ImageUrl,
+		arg.GoalCentavos,
+		arg.QuotaCentavos,
+		arg.MaxUnits,
+		arg.Active,
+		arg.Sort,
+	)
+	var id uuid.UUID
+	err := row.Scan(&id)
+	return id, err
+}
+
+const listContributions = `-- name: ListContributions :many
+select c.id, c.gift_id, g.title as gift_title, c.group_id, c.contributor_name,
+       c.amount_centavos, c.status, c.created_at, c.confirmed_at
+from contributions c
+join gifts g on g.id = c.gift_id
+where ($1::text = '' or c.status = $1::text)
+order by c.created_at desc
+`
+
+type ListContributionsRow struct {
+	ID              uuid.UUID
+	GiftID          uuid.UUID
+	GiftTitle       string
+	GroupID         uuid.NullUUID
+	ContributorName string
+	AmountCentavos  int64
+	Status          string
+	CreatedAt       time.Time
+	ConfirmedAt     *time.Time
+}
+
+func (q *Queries) ListContributions(ctx context.Context, statusFilter string) ([]ListContributionsRow, error) {
+	rows, err := q.db.Query(ctx, listContributions, statusFilter)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListContributionsRow
+	for rows.Next() {
+		var i ListContributionsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.GiftID,
+			&i.GiftTitle,
+			&i.GroupID,
+			&i.ContributorName,
+			&i.AmountCentavos,
+			&i.Status,
+			&i.CreatedAt,
+			&i.ConfirmedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listGiftsWithProgress = `-- name: ListGiftsWithProgress :many
 select g.id, g.title, g.description, g.image_url, g.goal_centavos, g.quota_centavos,
        g.max_units, g.active, g.sort,
@@ -184,4 +309,70 @@ func (q *Queries) SumGiftNonCancelled(ctx context.Context, giftID uuid.UUID) (in
 	var column_1 int64
 	err := row.Scan(&column_1)
 	return column_1, err
+}
+
+const updateContributionStatus = `-- name: UpdateContributionStatus :one
+update contributions
+set status = $1::text,
+    confirmed_at = case when $1::text = 'confirmed' then now() else confirmed_at end
+where id = $2
+returning id, gift_id, group_id, contributor_name, amount_centavos, status, created_at, confirmed_at
+`
+
+type UpdateContributionStatusParams struct {
+	Status string
+	ID     uuid.UUID
+}
+
+func (q *Queries) UpdateContributionStatus(ctx context.Context, arg UpdateContributionStatusParams) (Contribution, error) {
+	row := q.db.QueryRow(ctx, updateContributionStatus, arg.Status, arg.ID)
+	var i Contribution
+	err := row.Scan(
+		&i.ID,
+		&i.GiftID,
+		&i.GroupID,
+		&i.ContributorName,
+		&i.AmountCentavos,
+		&i.Status,
+		&i.CreatedAt,
+		&i.ConfirmedAt,
+	)
+	return i, err
+}
+
+const updateGift = `-- name: UpdateGift :execrows
+update gifts
+set title = $2, description = $3, image_url = $4, goal_centavos = $5,
+    quota_centavos = $6, max_units = $7, active = $8, sort = $9
+where id = $1
+`
+
+type UpdateGiftParams struct {
+	ID            uuid.UUID
+	Title         string
+	Description   string
+	ImageUrl      *string
+	GoalCentavos  *int64
+	QuotaCentavos *int64
+	MaxUnits      *int32
+	Active        bool
+	Sort          int32
+}
+
+func (q *Queries) UpdateGift(ctx context.Context, arg UpdateGiftParams) (int64, error) {
+	result, err := q.db.Exec(ctx, updateGift,
+		arg.ID,
+		arg.Title,
+		arg.Description,
+		arg.ImageUrl,
+		arg.GoalCentavos,
+		arg.QuotaCentavos,
+		arg.MaxUnits,
+		arg.Active,
+		arg.Sort,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }

@@ -18,3 +18,13 @@ order by is_primary desc, full_name;
 update guests
 set attending = $3, responded_at = now(), updated_at = now()
 where id = $1 and group_id = $2;
+
+-- name: ListAllGroups :many
+select id, label
+from guest_groups
+order by label, id;
+
+-- name: ListAllGuests :many
+select id, group_id, full_name, is_primary, category, attending
+from guests
+order by is_primary desc, full_name;

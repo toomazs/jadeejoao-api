@@ -50,6 +50,14 @@ func (f *fakeRepo) UpdateAttendances(_ context.Context, _ uuid.UUID, updates []A
 	return nil
 }
 
+func (f *fakeRepo) ListAllGroups(_ context.Context) ([]Group, error) {
+	return []Group{f.group}, nil
+}
+
+func (f *fakeRepo) ListAllGuests(_ context.Context) (map[uuid.UUID][]Member, error) {
+	return map[uuid.UUID][]Member{f.group.ID: f.members}, nil
+}
+
 type fixedDeadline string
 
 func (d fixedDeadline) RSVPDeadline(context.Context) (string, error) { return string(d), nil }
