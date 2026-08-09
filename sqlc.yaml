@@ -73,3 +73,12 @@ sql:
         out: "internal/messages/messagesdb"
         sql_package: "pgx/v5"
         overrides: *overrides
+  - engine: "postgresql"
+    schema: "db/migrations"
+    queries: "db/queries/media.sql"
+    gen:
+      go:
+        package: "mediadb"
+        out: "internal/media/mediadb"
+        sql_package: "pgx/v5"
+        overrides: *overrides
