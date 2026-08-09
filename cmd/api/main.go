@@ -16,6 +16,7 @@ import (
 
 	"github.com/jadeejoao/jadeejoao-api/db"
 	"github.com/jadeejoao/jadeejoao-api/internal/content"
+	"github.com/jadeejoao/jadeejoao-api/internal/gifts"
 	"github.com/jadeejoao/jadeejoao-api/internal/guests"
 	"github.com/jadeejoao/jadeejoao-api/internal/platform"
 	"github.com/jadeejoao/jadeejoao-api/internal/server"
@@ -58,6 +59,11 @@ func run() error {
 		Pool:    pool,
 		Content: contentSvc,
 		Guests:  guests.NewService(guests.NewRepo(pool), contentSvc, nil),
+		Gifts: gifts.NewService(gifts.NewRepo(pool), gifts.PixIdentity{
+			Key:          cfg.PIXKey,
+			MerchantName: cfg.PIXMerchantName,
+			MerchantCity: cfg.PIXMerchantCity,
+		}),
 	}
 
 	srv := &http.Server{

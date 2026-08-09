@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/jadeejoao/jadeejoao-api/internal/content"
+	"github.com/jadeejoao/jadeejoao-api/internal/gifts"
 	"github.com/jadeejoao/jadeejoao-api/internal/guests"
 	"github.com/jadeejoao/jadeejoao-api/internal/platform"
 )
@@ -22,6 +23,7 @@ type Deps struct {
 	Pool    *pgxpool.Pool
 	Content *content.Service
 	Guests  *guests.Service
+	Gifts   *gifts.Service
 }
 
 // NewRouter builds the production HTTP handler: middleware stack + Huma API.

@@ -47,6 +47,68 @@ components:
       required:
         - sections
       type: object
+    ContributionInputBody:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - https://example.com/schemas/ContributionInputBody.json
+          format: uri
+          readOnly: true
+          type: string
+        amount_centavos:
+          description: Amount in centavos. Optional for quota gifts (defaults to one quota); required for free-amount gifts.
+          format: int64
+          minimum: 1
+          type: integer
+        contributor_name:
+          examples:
+            - Eduardo Silva
+          maxLength: 200
+          minLength: 1
+          type: string
+        group_id:
+          description: Guest group, auto-filled by the site after lookup.
+          format: uuid
+          type: string
+      required:
+        - contributor_name
+      type: object
+    ContributionOutputBody:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - https://example.com/schemas/ContributionOutputBody.json
+          format: uri
+          readOnly: true
+          type: string
+        amount_centavos:
+          format: int64
+          type: integer
+        contribution_id:
+          format: uuid
+          type: string
+        gift_id:
+          format: uuid
+          type: string
+        pix_code:
+          type: string
+        status:
+          enum:
+            - declared
+            - confirmed
+            - cancelled
+          type: string
+      required:
+        - contribution_id
+        - gift_id
+        - amount_centavos
+        - status
+        - pix_code
+      type: object
     DressCodePayload:
       additionalProperties: false
       properties:
@@ -159,6 +221,55 @@ components:
         - address
         - title
       type: object
+    GiftView:
+      additionalProperties: false
+      properties:
+        confirmed_centavos:
+          description: Sum of admin-confirmed contributions.
+          format: int64
+          type: integer
+        declared_centavos:
+          description: Sum of declared (not yet confirmed) contributions.
+          format: int64
+          type: integer
+        description:
+          type: string
+        gift_id:
+          format: uuid
+          type: string
+        goal_centavos:
+          description: Goal amount in centavos (BRL).
+          format: int64
+          type: integer
+        image_url:
+          format: uri
+          type: string
+        max_units:
+          description: Maximum sellable quota units; null means unlimited.
+          format: int32
+          type: integer
+        quota_centavos:
+          description: Fixed quota unit in centavos; contributions must be multiples. Null means free amount.
+          format: int64
+          type: integer
+        sort:
+          format: int32
+          type: integer
+        title:
+          examples:
+            - Para o João fazer a barba
+          type: string
+        units_left:
+          description: "Remaining quota units (only for unit-limited gifts). Optimistic: declared + confirmed consume units."
+          format: int64
+          type: integer
+      required:
+        - gift_id
+        - title
+        - declared_centavos
+        - confirmed_centavos
+        - sort
+      type: object
     GiftsIntroPayload:
       additionalProperties: false
       properties:
@@ -177,6 +288,25 @@ components:
           type: string
       required:
         - title
+      type: object
+    GiftsOutputBody:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - https://example.com/schemas/GiftsOutputBody.json
+          format: uri
+          readOnly: true
+          type: string
+        gifts:
+          items:
+            $ref: "#/components/schemas/GiftView"
+          type:
+            - array
+            - "null"
+      required:
+        - gifts
       type: object
     GoodPracticesPayload:
       additionalProperties: false
@@ -401,6 +531,30 @@ components:
       required:
         - title
       type: object
+    PixOutputBody:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - https://example.com/schemas/PixOutputBody.json
+          format: uri
+          readOnly: true
+          type: string
+        amount_centavos:
+          format: int64
+          type: integer
+        gift_id:
+          format: uuid
+          type: string
+        pix_code:
+          description: Static PIX BR Code (copia-e-cola), CRC included.
+          type: string
+      required:
+        - gift_id
+        - amount_centavos
+        - pix_code
+      type: object
     ProgrammeItem:
       additionalProperties: false
       properties:
@@ -580,6 +734,95 @@ paths:
       summary: Get site content
       tags:
         - content
+  /api/v1/gifts:
+    get:
+      description: Active gifts with computed progress (declared + confirmed centavos, remaining units for quota gifts).
+      operationId: list-gifts
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GiftsOutputBody"
+          description: OK
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: List gifts
+      tags:
+        - gifts
+  /api/v1/gifts/{gift_id}/contributions:
+    post:
+      description: "The guest's \"já fiz o PIX\" commit point: records a declared contribution (admin confirms when the PIX lands) and returns the copia-e-cola again. Quota gifts are serialized under a row lock so the last quota cannot be double-claimed."
+      operationId: declare-contribution
+      parameters:
+        - in: path
+          name: gift_id
+          required: true
+          schema:
+            format: uuid
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ContributionInputBody"
+        required: true
+      responses:
+        "201":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ContributionOutputBody"
+          description: Created
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Declare a contribution
+      tags:
+        - gifts
+  /api/v1/gifts/{gift_id}/pix:
+    get:
+      description: Side-effect-free copia-e-cola preview — window-shopping creates nothing. The contribution is only recorded by POST /gifts/{gift_id}/contributions.
+      operationId: preview-gift-pix
+      parameters:
+        - in: path
+          name: gift_id
+          required: true
+          schema:
+            format: uuid
+            type: string
+        - description: Amount in centavos. Optional for quota gifts (defaults to one quota); required for free-amount gifts.
+          explode: false
+          in: query
+          name: amount_centavos
+          schema:
+            description: Amount in centavos. Optional for quota gifts (defaults to one quota); required for free-amount gifts.
+            format: int64
+            minimum: 1
+            type: integer
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PixOutputBody"
+          description: OK
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Preview PIX code
+      tags:
+        - gifts
   /api/v1/guests/lookup:
     post:
       description: Exact normalized full-name match. Returns the guest group with every member's current RSVP state. No fuzzy matching or suggestions — misses return 404.

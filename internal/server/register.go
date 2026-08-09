@@ -8,6 +8,7 @@ import (
 	"github.com/danielgtaylor/huma/v2"
 
 	"github.com/jadeejoao/jadeejoao-api/internal/content"
+	"github.com/jadeejoao/jadeejoao-api/internal/gifts"
 	"github.com/jadeejoao/jadeejoao-api/internal/guests"
 )
 
@@ -17,6 +18,7 @@ func Register(api huma.API, deps Deps) {
 	registerHealth(api, deps)
 	content.RegisterPublic(api, deps.Content)
 	guests.RegisterPublic(api, deps.Guests)
+	gifts.RegisterPublic(api, deps.Gifts)
 }
 
 // HealthOutput is the healthcheck response body.

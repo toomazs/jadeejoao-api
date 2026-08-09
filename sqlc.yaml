@@ -55,3 +55,12 @@ sql:
         out: "internal/guests/guestsdb"
         sql_package: "pgx/v5"
         overrides: *overrides
+  - engine: "postgresql"
+    schema: "db/migrations"
+    queries: "db/queries/gifts.sql"
+    gen:
+      go:
+        package: "giftsdb"
+        out: "internal/gifts/giftsdb"
+        sql_package: "pgx/v5"
+        overrides: *overrides
