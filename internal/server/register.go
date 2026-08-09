@@ -10,6 +10,7 @@ import (
 	"github.com/jadeejoao/jadeejoao-api/internal/content"
 	"github.com/jadeejoao/jadeejoao-api/internal/gifts"
 	"github.com/jadeejoao/jadeejoao-api/internal/guests"
+	"github.com/jadeejoao/jadeejoao-api/internal/importer"
 	"github.com/jadeejoao/jadeejoao-api/internal/media"
 	"github.com/jadeejoao/jadeejoao-api/internal/messages"
 	"github.com/jadeejoao/jadeejoao-api/internal/platform"
@@ -35,6 +36,7 @@ func Register(api huma.API, deps Deps) {
 	gifts.RegisterAdmin(admin, deps.Gifts)
 	messages.RegisterAdmin(admin, deps.Messages)
 	media.RegisterAdmin(admin, deps.Media)
+	importer.RegisterAdmin(admin, deps.Importer)
 }
 
 // HealthOutput is the healthcheck response body.

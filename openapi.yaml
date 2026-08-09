@@ -47,6 +47,21 @@ components:
       required:
         - title
       type: object
+    Conflict:
+      additionalProperties: false
+      properties:
+        db_group:
+          type: string
+        file_group:
+          type: string
+        name:
+          type: string
+        reason:
+          type: string
+      required:
+        - name
+        - reason
+      type: object
     ContentOutputBody:
       additionalProperties: false
       properties:
@@ -640,6 +655,58 @@ components:
         - city_label
         - title
       type: object
+    ImportOutputBody:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - https://example.com/schemas/ImportOutputBody.json
+          format: uri
+          readOnly: true
+          type: string
+        added:
+          description: Guests created by this import.
+          items:
+            type: string
+          type:
+            - array
+            - "null"
+        conflicts:
+          description: "Rows refused: homonyms across groups or duplicates in the file."
+          items:
+            $ref: "#/components/schemas/Conflict"
+          type:
+            - array
+            - "null"
+        errors:
+          description: Row-level parse issues (PT-BR).
+          items:
+            $ref: "#/components/schemas/RowIssue"
+          type:
+            - array
+            - "null"
+        unmatched:
+          description: Guests in the database that the file no longer mentions. Never deleted automatically.
+          items:
+            type: string
+          type:
+            - array
+            - "null"
+        updated:
+          description: Existing guests whose identity fields were refreshed.
+          items:
+            type: string
+          type:
+            - array
+            - "null"
+      required:
+        - added
+        - updated
+        - unmatched
+        - conflicts
+        - errors
+      type: object
     Lodging:
       additionalProperties: false
       properties:
@@ -1050,6 +1117,18 @@ components:
         - deadline
         - title
       type: object
+    RowIssue:
+      additionalProperties: false
+      properties:
+        line:
+          format: int64
+          type: integer
+        message:
+          type: string
+      required:
+        - line
+        - message
+      type: object
     Section:
       additionalProperties: false
       properties:
@@ -1401,6 +1480,45 @@ paths:
       summary: Export guest list as CSV
       tags:
         - guests
+        - admin
+  /api/v1/admin/import:
+    post:
+      description: "Uploads a CSV or XLSX export of the couple's spreadsheet (headers: nome, grupo, principal, categoria — case/accent-insensitive). Upserts identity fields only; RSVP answers are never touched. Homonyms across groups are reported as conflicts, never written."
+      operationId: admin-import-guests
+      requestBody:
+        content:
+          multipart/form-data:
+            encoding:
+              file:
+                contentType: text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/octet-stream
+            schema:
+              properties:
+                file:
+                  contentEncoding: binary
+                  contentMediaType: application/octet-stream
+                  format: binary
+                  type: string
+              required:
+                - file
+              type: object
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ImportOutputBody"
+          description: OK
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      security:
+        - supabaseJWT: []
+      summary: Import the guest list
+      tags:
+        - importer
         - admin
   /api/v1/admin/media:
     get:

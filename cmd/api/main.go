@@ -18,6 +18,7 @@ import (
 	"github.com/jadeejoao/jadeejoao-api/internal/content"
 	"github.com/jadeejoao/jadeejoao-api/internal/gifts"
 	"github.com/jadeejoao/jadeejoao-api/internal/guests"
+	"github.com/jadeejoao/jadeejoao-api/internal/importer"
 	"github.com/jadeejoao/jadeejoao-api/internal/media"
 	"github.com/jadeejoao/jadeejoao-api/internal/messages"
 	"github.com/jadeejoao/jadeejoao-api/internal/platform"
@@ -73,6 +74,7 @@ func run() error {
 		}),
 		Messages: messages.NewService(messages.NewRepo(pool)),
 		Media:    media.NewService(media.NewRepo(pool), storage),
+		Importer: importer.NewService(importer.NewRepo(pool)),
 		Auth:     platform.NewAuthValidator(cfg.SupabaseJWKSURL, cfg.SupabaseURL+"/auth/v1", cfg.AdminEmails),
 	}
 
