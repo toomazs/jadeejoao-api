@@ -6,12 +6,15 @@ import (
 	"time"
 
 	"github.com/danielgtaylor/huma/v2"
+
+	"github.com/jadeejoao/jadeejoao-api/internal/content"
 )
 
 // Register mounts every operation of every module. It must stay deterministic:
 // cmd/openapi calls it with zero Deps to export the spec.
 func Register(api huma.API, deps Deps) {
 	registerHealth(api, deps)
+	content.RegisterPublic(api, deps.Content)
 }
 
 // HealthOutput is the healthcheck response body.

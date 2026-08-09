@@ -15,6 +15,7 @@ import (
 	_ "time/tzdata" // America/Sao_Paulo must resolve inside slim containers
 
 	"github.com/jadeejoao/jadeejoao-api/db"
+	"github.com/jadeejoao/jadeejoao-api/internal/content"
 	"github.com/jadeejoao/jadeejoao-api/internal/platform"
 	"github.com/jadeejoao/jadeejoao-api/internal/server"
 )
@@ -51,7 +52,10 @@ func run() error {
 	}
 	defer pool.Close()
 
-	deps := server.Deps{Pool: pool}
+	deps := server.Deps{
+		Pool:    pool,
+		Content: content.NewService(content.NewRepo(pool)),
+	}
 
 	srv := &http.Server{
 		Addr:              ":" + cfg.Port,

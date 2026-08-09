@@ -1,5 +1,76 @@
 components:
   schemas:
+    BigDayPayload:
+      additionalProperties: false
+      properties:
+        body:
+          description: Rich text as Markdown.
+          type: string
+        images:
+          description: Public CDN image URLs.
+          items:
+            type: string
+          type:
+            - array
+            - "null"
+        programme:
+          items:
+            $ref: "#/components/schemas/ProgrammeItem"
+          type:
+            - array
+            - "null"
+        title:
+          description: Section heading shown on the site.
+          type: string
+        venue_notes:
+          description: Venue guidance (outdoor, grass — advise footwear).
+          type: string
+      required:
+        - title
+      type: object
+    ContentOutputBody:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - https://example.com/schemas/ContentOutputBody.json
+          format: uri
+          readOnly: true
+          type: string
+        sections:
+          items:
+            $ref: "#/components/schemas/Section"
+          type:
+            - array
+            - "null"
+      required:
+        - sections
+      type: object
+    DressCodePayload:
+      additionalProperties: false
+      properties:
+        attire:
+          description: Short dress-code formula.
+          examples:
+            - Sofisticado, confortável, vestido longo, esporte fino.
+          type: string
+        body:
+          description: Rich text as Markdown.
+          type: string
+        images:
+          description: Public CDN image URLs.
+          items:
+            type: string
+          type:
+            - array
+            - "null"
+        title:
+          description: Section heading shown on the site.
+          type: string
+      required:
+        - title
+      type: object
     ErrorDetail:
       additionalProperties: false
       properties:
@@ -59,6 +130,79 @@ components:
           format: uri
           type: string
       type: object
+    GettingTherePayload:
+      additionalProperties: false
+      properties:
+        address:
+          examples:
+            - Rua Piraju, 306 – Jardim Paulista, Atibaia – SP, 12947-321
+          type: string
+        body:
+          description: Rich text as Markdown.
+          type: string
+        images:
+          description: Public CDN image URLs.
+          items:
+            type: string
+          type:
+            - array
+            - "null"
+        map_embed_url:
+          format: uri
+          type: string
+        parking_notes:
+          type: string
+        title:
+          description: Section heading shown on the site.
+          type: string
+      required:
+        - address
+        - title
+      type: object
+    GiftsIntroPayload:
+      additionalProperties: false
+      properties:
+        body:
+          description: Rich text as Markdown.
+          type: string
+        images:
+          description: Public CDN image URLs.
+          items:
+            type: string
+          type:
+            - array
+            - "null"
+        title:
+          description: Section heading shown on the site.
+          type: string
+      required:
+        - title
+      type: object
+    GoodPracticesPayload:
+      additionalProperties: false
+      properties:
+        body:
+          description: Rich text as Markdown.
+          type: string
+        images:
+          description: Public CDN image URLs.
+          items:
+            type: string
+          type:
+            - array
+            - "null"
+        rules:
+          items:
+            type: string
+          type:
+            - array
+            - "null"
+        title:
+          description: Section heading shown on the site.
+          type: string
+      required:
+        - title
+      type: object
     HealthOutputBody:
       additionalProperties: false
       properties:
@@ -77,12 +221,249 @@ components:
       required:
         - status
       type: object
+    HeroPayload:
+      additionalProperties: false
+      properties:
+        body:
+          description: Rich text as Markdown.
+          type: string
+        city_label:
+          examples:
+            - Atibaia – SP
+          type: string
+        couple_names:
+          examples:
+            - Jade & João
+          type: string
+        event_datetime:
+          description: Ceremony start, ISO 8601 with America/Sao_Paulo offset.
+          examples:
+            - "2027-08-07T15:00:00-03:00"
+          format: date-time
+          type: string
+        hero_image_url:
+          format: uri
+          type: string
+        images:
+          description: Public CDN image URLs.
+          items:
+            type: string
+          type:
+            - array
+            - "null"
+        title:
+          description: Section heading shown on the site.
+          type: string
+      required:
+        - couple_names
+        - event_datetime
+        - city_label
+        - title
+      type: object
+    Lodging:
+      additionalProperties: false
+      properties:
+        area:
+          examples:
+            - Centro
+          type: string
+        link:
+          format: uri
+          type: string
+        name:
+          examples:
+            - Pousada Jardim
+          type: string
+        notes:
+          type: string
+        shuttle_served:
+          description: Whether the wedding shuttle (translado) serves this lodging.
+          type: boolean
+      required:
+        - name
+        - shuttle_served
+      type: object
+    MessagesIntroPayload:
+      additionalProperties: false
+      properties:
+        body:
+          description: Rich text as Markdown.
+          type: string
+        images:
+          description: Public CDN image URLs.
+          items:
+            type: string
+          type:
+            - array
+            - "null"
+        title:
+          description: Section heading shown on the site.
+          type: string
+      required:
+        - title
+      type: object
+    OurStoryPayload:
+      additionalProperties: false
+      properties:
+        body:
+          description: Rich text as Markdown.
+          type: string
+        images:
+          description: Public CDN image URLs.
+          items:
+            type: string
+          type:
+            - array
+            - "null"
+        title:
+          description: Section heading shown on the site.
+          type: string
+      required:
+        - title
+      type: object
+    ProgrammeItem:
+      additionalProperties: false
+      properties:
+        label:
+          examples:
+            - Recepção dos convidados
+          type: string
+        time:
+          description: Local time (America/Sao_Paulo), HH:MM.
+          examples:
+            - "15:00"
+          type: string
+      required:
+        - time
+        - label
+      type: object
+    RSVPPayload:
+      additionalProperties: false
+      properties:
+        body:
+          description: Rich text as Markdown.
+          type: string
+        deadline:
+          description: Last day (inclusive, America/Sao_Paulo) to submit or change RSVPs. Enforced server-side.
+          examples:
+            - "2027-07-07"
+          format: date
+          type: string
+        images:
+          description: Public CDN image URLs.
+          items:
+            type: string
+          type:
+            - array
+            - "null"
+        title:
+          description: Section heading shown on the site.
+          type: string
+      required:
+        - deadline
+        - title
+      type: object
+    Section:
+      additionalProperties: false
+      properties:
+        big_day:
+          $ref: "#/components/schemas/BigDayPayload"
+        dress_code:
+          $ref: "#/components/schemas/DressCodePayload"
+        enabled:
+          description: Disabled sections are hidden from the public site (server-side).
+          type: boolean
+        getting_there:
+          $ref: "#/components/schemas/GettingTherePayload"
+        gifts_intro:
+          $ref: "#/components/schemas/GiftsIntroPayload"
+        good_practices:
+          $ref: "#/components/schemas/GoodPracticesPayload"
+        hero:
+          $ref: "#/components/schemas/HeroPayload"
+        messages_intro:
+          $ref: "#/components/schemas/MessagesIntroPayload"
+        our_story:
+          $ref: "#/components/schemas/OurStoryPayload"
+        rsvp:
+          $ref: "#/components/schemas/RSVPPayload"
+        slug:
+          enum:
+            - hero
+            - our_story
+            - big_day
+            - rsvp
+            - getting_there
+            - stay
+            - gifts_intro
+            - dress_code
+            - good_practices
+            - messages_intro
+          type: string
+        stay:
+          $ref: "#/components/schemas/StayPayload"
+      required:
+        - slug
+        - enabled
+      type: object
+    StayPayload:
+      additionalProperties: false
+      properties:
+        airbnb_areas:
+          description: Neighborhoods worth searching on Airbnb.
+          items:
+            type: string
+          type:
+            - array
+            - "null"
+        body:
+          description: Rich text as Markdown.
+          type: string
+        images:
+          description: Public CDN image URLs.
+          items:
+            type: string
+          type:
+            - array
+            - "null"
+        lodgings:
+          items:
+            $ref: "#/components/schemas/Lodging"
+          type:
+            - array
+            - "null"
+        title:
+          description: Section heading shown on the site.
+          type: string
+      required:
+        - title
+      type: object
 info:
   description: Backend for the wedding website of Jade & João — August 7, 2027, Atibaia-SP, Brazil. Single writer over Supabase (Postgres + Storage). Public surface serves the one-page site; /api/v1/admin/** requires a Supabase Auth JWT. All guest-facing messages are in Brazilian Portuguese.
   title: Jade & João Wedding API
   version: 1.0.0
 openapi: 3.1.0
 paths:
+  /api/v1/content:
+    get:
+      description: Returns every enabled editorial section in render order — the single call the public site makes for all of its copy.
+      operationId: get-content
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ContentOutputBody"
+          description: OK
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Get site content
+      tags:
+        - content
   /healthz:
     get:
       description: "Railway healthcheck endpoint: returns 200 when the service and its database connection are healthy."

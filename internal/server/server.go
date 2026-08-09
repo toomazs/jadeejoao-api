@@ -10,17 +10,16 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/jadeejoao/jadeejoao-api/internal/content"
 	"github.com/jadeejoao/jadeejoao-api/internal/platform"
 )
 
-// BasePath prefixes every versioned API operation.
-const BasePath = "/api/v1"
-
 // Deps carries the service instances handlers close over. All fields are
-// interfaces (or nil-able handles), so the API can be constructed with zero
-// values for spec export and handler tests.
+// nil-able handles, so the API can be constructed with zero values for spec
+// export and handler tests.
 type Deps struct {
-	Pool *pgxpool.Pool
+	Pool    *pgxpool.Pool
+	Content *content.Service
 }
 
 // NewRouter builds the production HTTP handler: middleware stack + Huma API.
