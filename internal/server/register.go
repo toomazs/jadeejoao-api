@@ -10,6 +10,7 @@ import (
 	"github.com/jadeejoao/jadeejoao-api/internal/content"
 	"github.com/jadeejoao/jadeejoao-api/internal/gifts"
 	"github.com/jadeejoao/jadeejoao-api/internal/guests"
+	"github.com/jadeejoao/jadeejoao-api/internal/messages"
 )
 
 // Register mounts every operation of every module. It must stay deterministic:
@@ -19,6 +20,7 @@ func Register(api huma.API, deps Deps) {
 	content.RegisterPublic(api, deps.Content)
 	guests.RegisterPublic(api, deps.Guests)
 	gifts.RegisterPublic(api, deps.Gifts)
+	messages.RegisterPublic(api, deps.Messages)
 }
 
 // HealthOutput is the healthcheck response body.

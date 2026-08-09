@@ -13,6 +13,7 @@ import (
 	"github.com/jadeejoao/jadeejoao-api/internal/content"
 	"github.com/jadeejoao/jadeejoao-api/internal/gifts"
 	"github.com/jadeejoao/jadeejoao-api/internal/guests"
+	"github.com/jadeejoao/jadeejoao-api/internal/messages"
 	"github.com/jadeejoao/jadeejoao-api/internal/platform"
 )
 
@@ -20,10 +21,11 @@ import (
 // nil-able handles, so the API can be constructed with zero values for spec
 // export and handler tests.
 type Deps struct {
-	Pool    *pgxpool.Pool
-	Content *content.Service
-	Guests  *guests.Service
-	Gifts   *gifts.Service
+	Pool     *pgxpool.Pool
+	Content  *content.Service
+	Guests   *guests.Service
+	Gifts    *gifts.Service
+	Messages *messages.Service
 }
 
 // NewRouter builds the production HTTP handler: middleware stack + Huma API.

@@ -493,6 +493,60 @@ components:
         - is_primary
         - attending
       type: object
+    MessageCreatedOutputBody:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - https://example.com/schemas/MessageCreatedOutputBody.json
+          format: uri
+          readOnly: true
+          type: string
+        message_id:
+          format: uuid
+          type: string
+        status:
+          description: New messages always start pending; the couple moderates them in the admin.
+          enum:
+            - pending
+            - approved
+            - rejected
+          type: string
+      required:
+        - message_id
+        - status
+      type: object
+    MessageInputBody:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - https://example.com/schemas/MessageInputBody.json
+          format: uri
+          readOnly: true
+          type: string
+        author_name:
+          examples:
+            - Eduardo Silva
+          maxLength: 200
+          minLength: 1
+          type: string
+        body:
+          examples:
+            - Felicidades aos noivos!
+          maxLength: 2000
+          minLength: 1
+          type: string
+        group_id:
+          description: Guest group, auto-filled by the site after lookup.
+          format: uuid
+          type: string
+      required:
+        - author_name
+        - body
+      type: object
     MessagesIntroPayload:
       additionalProperties: false
       properties:
@@ -882,6 +936,32 @@ paths:
       summary: Submit RSVP
       tags:
         - guests
+  /api/v1/messages:
+    post:
+      description: "Creates a pending guestbook message (Recado aos noivos). Publicly write-only: messages are read and moderated in the admin."
+      operationId: create-message
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MessageInputBody"
+        required: true
+      responses:
+        "201":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageCreatedOutputBody"
+          description: Created
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Leave a message for the couple
+      tags:
+        - messages
   /healthz:
     get:
       description: "Railway healthcheck endpoint: returns 200 when the service and its database connection are healthy."

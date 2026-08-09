@@ -18,6 +18,7 @@ import (
 	"github.com/jadeejoao/jadeejoao-api/internal/content"
 	"github.com/jadeejoao/jadeejoao-api/internal/gifts"
 	"github.com/jadeejoao/jadeejoao-api/internal/guests"
+	"github.com/jadeejoao/jadeejoao-api/internal/messages"
 	"github.com/jadeejoao/jadeejoao-api/internal/platform"
 	"github.com/jadeejoao/jadeejoao-api/internal/server"
 )
@@ -64,6 +65,7 @@ func run() error {
 			MerchantName: cfg.PIXMerchantName,
 			MerchantCity: cfg.PIXMerchantCity,
 		}),
+		Messages: messages.NewService(messages.NewRepo(pool)),
 	}
 
 	srv := &http.Server{

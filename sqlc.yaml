@@ -64,3 +64,12 @@ sql:
         out: "internal/gifts/giftsdb"
         sql_package: "pgx/v5"
         overrides: *overrides
+  - engine: "postgresql"
+    schema: "db/migrations"
+    queries: "db/queries/messages.sql"
+    gen:
+      go:
+        package: "messagesdb"
+        out: "internal/messages/messagesdb"
+        sql_package: "pgx/v5"
+        overrides: *overrides
