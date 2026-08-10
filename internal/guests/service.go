@@ -227,7 +227,7 @@ func buildRSVPEmail(group Group, members []Member) (subject, body string) {
 		default:
 			answer = "⏳ ainda não respondeu"
 		}
-		items.WriteString(fmt.Sprintf("<li><strong>%s</strong> — %s</li>", html.EscapeString(m.FullName), answer))
+		fmt.Fprintf(&items, "<li><strong>%s</strong> — %s</li>", html.EscapeString(m.FullName), answer)
 	}
 	subject = fmt.Sprintf("Confirmação de presença: %s", group.Label)
 	body = fmt.Sprintf(
@@ -246,7 +246,7 @@ func (s *Service) SuggestNames(ctx context.Context, query string) ([]string, err
 	if len([]rune(normalized)) < 3 {
 		return []string{}, nil
 	}
-	names, err := s.repo.SuggestNames(ctx, normalized)
+	names, err := s.repo.SuggestNames(ctx, escapeLikePrefix(normalized))
 	if err != nil {
 		return nil, err
 	}
@@ -255,6 +255,10 @@ func (s *Service) SuggestNames(ctx context.Context, query string) ([]string, err
 	}
 	return names, nil
 }
+
+// escapeLikePrefix neutralizes LIKE metacharacters so a guest typing "%" or
+// "_" matches those literal characters instead of wildcarding the whole list.
+var escapeLikePrefix = strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace
 
 // AdminDashboard returns every group with members plus aggregate headcounts.
 func (s *Service) AdminDashboard(ctx context.Context) ([]GroupWithMembers, Headcounts, error) {

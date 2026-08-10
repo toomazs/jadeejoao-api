@@ -214,6 +214,27 @@ func TestSuggestNames(t *testing.T) {
 	if err != nil || names == nil || len(names) != 0 {
 		t.Fatalf("miss: %v %v", names, err)
 	}
+
+	// LIKE metacharacters are literals, never wildcards: "%%%" must match
+	// nothing instead of dumping the first 8 names.
+	if names, _ := svc.SuggestNames(ctx, "%%%"); len(names) != 0 {
+		t.Fatalf("wildcard input must not match, got %v", names)
+	}
+}
+
+func TestEscapeLikePrefix(t *testing.T) {
+	cases := map[string]string{
+		"joao":   "joao",
+		"100%":   `100\%`,
+		"a_b":    `a\_b`,
+		`a\b`:    `a\\b`,
+		`%_\mix`: `\%\_\\mix`,
+	}
+	for in, want := range cases {
+		if got := escapeLikePrefix(in); got != want {
+			t.Fatalf("escapeLikePrefix(%q) = %q, want %q", in, got, want)
+		}
+	}
 }
 
 type fakeMailer struct {
