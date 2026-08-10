@@ -14,6 +14,9 @@ import (
 // ErrNotFound: message id unknown.
 var ErrNotFound = errors.New("message not found")
 
+// ErrUnknownGroup: the optional group_id references no existing group.
+var ErrUnknownGroup = errors.New("unknown guest group")
+
 // Message is one guestbook entry.
 type Message struct {
 	ID         uuid.UUID

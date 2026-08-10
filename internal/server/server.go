@@ -40,6 +40,24 @@ const (
 	publicPostBurst     = 20
 )
 
+// maxRequestSize bounds any request body, chiefly the admin multipart
+// uploads (sheet imports, images).
+const maxRequestSize = 26 << 20 // 26 MB
+
+// The spec freezes guest-facing messages as PT-BR. Handler-raised problems
+// already are; this override localizes the detail Huma itself generates for
+// schema-validation failures, keeping the per-field entries as structured
+// (machine-readable) data for the SPAs.
+func init() {
+	origNewError := huma.NewError
+	huma.NewError = func(status int, msg string, errs ...error) huma.StatusError {
+		if status == http.StatusUnprocessableEntity && msg == "validation failed" {
+			msg = "Dados inválidos. Confira os campos enviados e tente novamente."
+		}
+		return origNewError(status, msg, errs...)
+	}
+}
+
 // NewRouter builds the production HTTP handler: middleware stack + Huma API.
 func NewRouter(cfg *platform.Config, deps Deps) http.Handler {
 	r := chi.NewRouter()
@@ -47,6 +65,7 @@ func NewRouter(cfg *platform.Config, deps Deps) http.Handler {
 	r.Use(logRequests)
 	r.Use(recoverPanics)
 	r.Use(cors(cfg.CORSOrigins))
+	r.Use(maxRequestBytes(maxRequestSize))
 	r.Use(publicPostRateLimit(platform.NewRateLimiter(publicPostPerMinute, publicPostBurst)))
 	NewAPI(r, deps)
 	return r

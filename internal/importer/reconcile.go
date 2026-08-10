@@ -43,7 +43,14 @@ type GuestPlan struct {
 type GroupPlan struct {
 	ExistingID *uuid.UUID // nil = create with Label
 	Label      string
-	Guests     []GuestPlan
+	// UpdateLabel: the file renamed an existing group (identified by its
+	// members) — persist the new label.
+	UpdateLabel bool
+	// EnforcePrimary: overwrite the group's primary flag exclusively. Only
+	// set when a row was explicitly marked principal or the group is new —
+	// a partial upload must not silently reassign an existing primary.
+	EnforcePrimary bool
+	Guests         []GuestPlan
 }
 
 // Plan is the full set of writes an import will perform.
@@ -89,8 +96,10 @@ func Reconcile(rows []Row, snap Snapshot) (Plan, Report) {
 		}
 	}
 	guestByNorm := make(map[string]ExistingGuest, len(snap.Guests))
+	groupSize := make(map[uuid.UUID]int, len(snap.Groups))
 	for _, g := range snap.Guests {
 		guestByNorm[g.NormalizedName] = g
+		groupSize[g.GroupID]++
 	}
 
 	// Group the file rows. Empty grupo = the guest is their own group.
@@ -134,13 +143,25 @@ func Reconcile(rows []Row, snap Snapshot) (Plan, Report) {
 	}
 
 	var plan Plan
+	claimed := map[uuid.UUID]bool{}
 	for _, key := range order {
 		fg := grouped[key]
 
 		gp := GroupPlan{Label: fg.label}
-		if existing, ok := groupByNormLabel[key]; ok {
+		if existing, ok := groupByNormLabel[key]; ok && !claimed[existing.ID] {
 			id := existing.ID
 			gp.ExistingID = &id
+		} else if target, ok := inferGroupByMembers(fg.rows, guestByNorm, groupSize); ok && !claimed[target] {
+			// The file renamed this group: its members identify it even
+			// though the label no longer matches (requires ≥2 corroborating
+			// members covering at least half the group — a lone matching
+			// name stays a homonym conflict, never a hijack).
+			id := target
+			gp.ExistingID = &id
+			gp.UpdateLabel = true
+		}
+		if gp.ExistingID != nil {
+			claimed[*gp.ExistingID] = true
 		}
 
 		// Filter conflicts first: a name living in a different group is
@@ -171,14 +192,18 @@ func Reconcile(rows []Row, snap Snapshot) (Plan, Report) {
 		}
 
 		// Choose the group's primary among the survivors: first row marked
-		// principal wins, else the first survivor.
+		// principal wins, else the first survivor. The choice is only
+		// ENFORCED for explicit marks or brand-new groups (see GroupPlan).
 		primaryIdx := 0
+		explicit := false
 		for i, s := range survivors {
 			if s.row.Principal {
 				primaryIdx = i
+				explicit = true
 				break
 			}
 		}
+		gp.EnforcePrimary = explicit || gp.ExistingID == nil
 
 		for i, s := range survivors {
 			guestPlan := GuestPlan{
@@ -209,4 +234,28 @@ func Reconcile(rows []Row, snap Snapshot) (Plan, Report) {
 	}
 
 	return plan, report
+}
+
+// inferGroupByMembers identifies an existing group by the guests inside a
+// file group, so a relabeled group is recognized instead of exploding into
+// bogus conflicts. It demands corroboration: at least two rows matching the
+// same DB group, covering at least half of it.
+func inferGroupByMembers(rows []Row, guestByNorm map[string]ExistingGuest, groupSize map[uuid.UUID]int) (uuid.UUID, bool) {
+	counts := map[uuid.UUID]int{}
+	var best uuid.UUID
+	bestCount := 0
+	for _, row := range rows {
+		existing, ok := guestByNorm[guests.Normalize(row.Nome)]
+		if !ok {
+			continue
+		}
+		counts[existing.GroupID]++
+		if counts[existing.GroupID] > bestCount {
+			best, bestCount = existing.GroupID, counts[existing.GroupID]
+		}
+	}
+	if bestCount >= 2 && bestCount*2 >= groupSize[best] {
+		return best, true
+	}
+	return uuid.Nil, false
 }

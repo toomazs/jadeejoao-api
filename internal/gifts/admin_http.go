@@ -3,6 +3,7 @@ package gifts
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"net/http"
 	"time"
 
@@ -15,8 +16,8 @@ type GiftParamsBody struct {
 	Title         string  `json:"title" minLength:"1" maxLength:"200"`
 	Description   string  `json:"description,omitempty" maxLength:"2000"`
 	ImageURL      *string `json:"image_url,omitempty" format:"uri"`
-	GoalCentavos  *int64  `json:"goal_centavos,omitempty" minimum:"1"`
-	QuotaCentavos *int64  `json:"quota_centavos,omitempty" minimum:"1"`
+	GoalCentavos  *int64  `json:"goal_centavos,omitempty" minimum:"1" maximum:"10000000000"`
+	QuotaCentavos *int64  `json:"quota_centavos,omitempty" minimum:"1" maximum:"10000000000"`
 	MaxUnits      *int32  `json:"max_units,omitempty" minimum:"1" doc:"Requires quota_centavos."`
 	Active        bool    `json:"active"`
 	Sort          int32   `json:"sort"`
@@ -108,7 +109,8 @@ func RegisterAdmin(api huma.API, svc *Service) {
 	}, func(ctx context.Context, _ *struct{}) (*AdminGiftsOutput, error) {
 		gifts, err := svc.AdminListGifts(ctx)
 		if err != nil {
-			return nil, huma.Error500InternalServerError("erro ao listar os presentes", err)
+			slog.ErrorContext(ctx, "admin list gifts failed", "error", err)
+			return nil, huma.Error500InternalServerError("erro ao listar os presentes")
 		}
 		out := &AdminGiftsOutput{}
 		out.Body.Gifts = make([]GiftView, len(gifts))
@@ -182,7 +184,8 @@ func RegisterAdmin(api huma.API, svc *Service) {
 	}, func(ctx context.Context, in *ListContributionsInput) (*ContributionsOutput, error) {
 		items, err := svc.ListContributions(ctx, in.Status)
 		if err != nil {
-			return nil, huma.Error500InternalServerError("erro ao listar as contribuições", err)
+			slog.ErrorContext(ctx, "admin list contributions failed", "error", err)
+			return nil, huma.Error500InternalServerError("erro ao listar as contribuições")
 		}
 		out := &ContributionsOutput{}
 		out.Body.Contributions = make([]ContributionView, len(items))
@@ -205,11 +208,14 @@ func RegisterAdmin(api huma.API, svc *Service) {
 			return nil, huma.Error404NotFound("Contribuição não encontrada.")
 		}
 		updated, err := svc.ModerateContribution(ctx, id, in.Body.Status)
-		if errors.Is(err, ErrNotFound) {
+		switch {
+		case errors.Is(err, ErrNotFound):
 			return nil, huma.Error404NotFound("Contribuição não encontrada.")
-		}
-		if err != nil {
-			return nil, huma.Error500InternalServerError("erro ao atualizar a contribuição", err)
+		case errors.Is(err, ErrInvalidTransition):
+			return nil, huma.Error409Conflict("Transição inválida: contribuições canceladas não podem ser reativadas e só contribuições declaradas podem ser confirmadas.")
+		case err != nil:
+			slog.ErrorContext(ctx, "moderate contribution failed", "error", err)
+			return nil, huma.Error500InternalServerError("erro ao atualizar a contribuição")
 		}
 		return &ModeratedContributionOutput{Body: contributionView(updated, "")}, nil
 	})
@@ -244,6 +250,7 @@ func mapAdminGiftErr(err error) error {
 	case errors.Is(err, ErrInvalidGift):
 		return huma.Error422UnprocessableEntity("Configuração inválida: max_units exige quota_centavos.")
 	default:
-		return huma.Error500InternalServerError("erro ao salvar o presente", err)
+		slog.Error("admin gift request failed", "error", err)
+		return huma.Error500InternalServerError("erro ao salvar o presente")
 	}
 }

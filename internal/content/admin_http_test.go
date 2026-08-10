@@ -41,7 +41,10 @@ func TestAdminSectionEndpoints(t *testing.T) {
 	// Payload field not matching the slug: 422 PT-BR.
 	resp = api.Put("/sections/rsvp", map[string]any{
 		"enabled": true,
-		"hero":    map[string]any{"title": "x", "couple_names": "a", "event_datetime": "b", "city_label": "c"},
+		"hero": map[string]any{
+			"title": "x", "couple_names": "a",
+			"event_datetime": "2027-08-07T15:00:00-03:00", "city_label": "c",
+		},
 	})
 	if resp.Code != http.StatusUnprocessableEntity {
 		t.Fatalf("mismatch = %d, want 422", resp.Code)

@@ -84,24 +84,19 @@ func (f *fakeRepo) UpdateGift(_ context.Context, id uuid.UUID, p GiftParams) err
 	return ErrNotFound
 }
 
-func (f *fakeRepo) CountContributions(_ context.Context, giftID uuid.UUID) (int64, error) {
-	var n int64
+func (f *fakeRepo) DeleteGiftIfNoContributions(_ context.Context, id uuid.UUID) (bool, error) {
 	for _, c := range f.contribs {
-		if c.GiftID == giftID {
-			n++
+		if c.GiftID == id {
+			return false, nil
 		}
 	}
-	return n, nil
-}
-
-func (f *fakeRepo) DeleteGiftRow(_ context.Context, id uuid.UUID) error {
 	for i := range f.gifts {
 		if f.gifts[i].ID == id {
 			f.gifts = append(f.gifts[:i], f.gifts[i+1:]...)
-			return nil
+			return true, nil
 		}
 	}
-	return ErrNotFound
+	return false, nil
 }
 
 func (f *fakeRepo) DeactivateGift(_ context.Context, id uuid.UUID) error {
@@ -124,12 +119,21 @@ func (f *fakeRepo) ListContributions(_ context.Context, statusFilter string) ([]
 	return out, nil
 }
 
+// UpdateContributionStatus mirrors the SQL transition guard: confirm only
+// from declared, cancel from declared|confirmed.
 func (f *fakeRepo) UpdateContributionStatus(_ context.Context, id uuid.UUID, status string) (Contribution, error) {
 	for i := range f.contribs {
-		if f.contribs[i].ID == id {
-			f.contribs[i].Status = status
-			return f.contribs[i], nil
+		if f.contribs[i].ID != id {
+			continue
 		}
+		current := f.contribs[i].Status
+		legal := (status == "confirmed" && current == "declared") ||
+			(status == "cancelled" && (current == "declared" || current == "confirmed"))
+		if !legal {
+			return Contribution{}, ErrInvalidTransition
+		}
+		f.contribs[i].Status = status
+		return f.contribs[i], nil
 	}
 	return Contribution{}, ErrNotFound
 }

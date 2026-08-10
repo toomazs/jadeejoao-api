@@ -94,6 +94,7 @@ components:
         amount_centavos:
           description: Amount in centavos. Optional for quota gifts (defaults to one quota); required for free-amount gifts.
           format: int64
+          maximum: 10000000000
           minimum: 1
           type: integer
         contributor_name:
@@ -378,6 +379,7 @@ components:
           type: string
         goal_centavos:
           format: int64
+          maximum: 10000000000
           minimum: 1
           type: integer
         image_url:
@@ -390,6 +392,7 @@ components:
           type: integer
         quota_centavos:
           format: int64
+          maximum: 10000000000
           minimum: 1
           type: integer
         sort:
@@ -1161,6 +1164,7 @@ components:
         rsvp:
           $ref: "#/components/schemas/RSVPPayload"
         slug:
+          description: Always present in responses; ignored in the section-update request body (the path decides).
           enum:
             - hero
             - our_story
@@ -1176,7 +1180,6 @@ components:
         stay:
           $ref: "#/components/schemas/StayPayload"
       required:
-        - slug
         - enabled
       type: object
     SectionsOutputBody:
@@ -1490,7 +1493,7 @@ paths:
           multipart/form-data:
             encoding:
               file:
-                contentType: text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/octet-stream
+                contentType: text/csv,text/plain,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/octet-stream
             schema:
               properties:
                 file:
@@ -1842,6 +1845,7 @@ paths:
           schema:
             description: Amount in centavos. Optional for quota gifts (defaults to one quota); required for free-amount gifts.
             format: int64
+            maximum: 10000000000
             minimum: 1
             type: integer
       responses:

@@ -11,6 +11,11 @@ insert into guest_groups (label)
 values ($1)
 returning id;
 
+-- name: UpdateGroupLabel :exec
+update guest_groups
+set label = $2
+where id = $1;
+
 -- name: InsertImportedGuest :one
 insert into guests (group_id, full_name, normalized_name, is_primary, category)
 values ($1, $2, $3, $4, $5)

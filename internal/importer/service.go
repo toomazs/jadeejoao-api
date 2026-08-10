@@ -3,8 +3,13 @@ package importer
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 )
+
+// ErrNameCollision: a guest insert hit the global normalized_name UNIQUE —
+// the list changed between snapshot and apply. The whole import rolled back.
+var ErrNameCollision = errors.New("guest name collision during import")
 
 // Repo is the persistence surface for imports. Apply must run the whole plan
 // in one transaction: a half-applied import is worse than a failed one.

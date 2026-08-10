@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/jadeejoao/jadeejoao-api/internal/messages/messagesdb"
@@ -32,6 +33,10 @@ func (r *pgRepo) Insert(ctx context.Context, groupID *uuid.UUID, authorName, bod
 		AuthorName: authorName,
 		Body:       body,
 	})
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && pgErr.Code == "23503" {
+		return Message{}, ErrUnknownGroup
+	}
 	if err != nil {
 		return Message{}, err
 	}

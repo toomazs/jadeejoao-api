@@ -7,10 +7,15 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/jadeejoao/jadeejoao-api/internal/gifts/giftsdb"
 )
+
+// foreignKeyViolation is the Postgres SQLSTATE for FK errors — a fabricated
+// group_id must surface as a clean domain error, not a 500.
+const foreignKeyViolation = "23503"
 
 // pgRepo adapts the sqlc-generated queries to the Repo interface.
 type pgRepo struct {
@@ -100,6 +105,10 @@ func (r *pgRepo) CreateContribution(ctx context.Context, req NewContribution) (C
 		ContributorName: req.ContributorName,
 		AmountCentavos:  req.AmountCentavos,
 	})
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && pgErr.Code == foreignKeyViolation {
+		return Contribution{}, ErrUnknownGroup
+	}
 	if err != nil {
 		return Contribution{}, err
 	}
@@ -133,19 +142,12 @@ func (r *pgRepo) UpdateGift(ctx context.Context, id uuid.UUID, p GiftParams) err
 	return nil
 }
 
-func (r *pgRepo) CountContributions(ctx context.Context, giftID uuid.UUID) (int64, error) {
-	return r.q.CountGiftContributions(ctx, giftID)
-}
-
-func (r *pgRepo) DeleteGiftRow(ctx context.Context, id uuid.UUID) error {
-	affected, err := r.q.DeleteGiftRow(ctx, id)
+func (r *pgRepo) DeleteGiftIfNoContributions(ctx context.Context, id uuid.UUID) (bool, error) {
+	affected, err := r.q.DeleteGiftIfNoContributions(ctx, id)
 	if err != nil {
-		return err
+		return false, err
 	}
-	if affected == 0 {
-		return ErrNotFound
-	}
-	return nil
+	return affected > 0, nil
 }
 
 func (r *pgRepo) DeactivateGift(ctx context.Context, id uuid.UUID) error {
@@ -178,7 +180,14 @@ func (r *pgRepo) ListContributions(ctx context.Context, statusFilter string) ([]
 func (r *pgRepo) UpdateContributionStatus(ctx context.Context, id uuid.UUID, status string) (Contribution, error) {
 	row, err := r.q.UpdateContributionStatus(ctx, giftsdb.UpdateContributionStatusParams{ID: id, Status: status})
 	if errors.Is(err, pgx.ErrNoRows) {
-		return Contribution{}, ErrNotFound
+		// Zero rows: either the id is unknown (404) or the transition is
+		// illegal for the current status (409). Disambiguate.
+		if _, getErr := r.q.GetContribution(ctx, id); errors.Is(getErr, pgx.ErrNoRows) {
+			return Contribution{}, ErrNotFound
+		} else if getErr != nil {
+			return Contribution{}, getErr
+		}
+		return Contribution{}, ErrInvalidTransition
 	}
 	if err != nil {
 		return Contribution{}, err

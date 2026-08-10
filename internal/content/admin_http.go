@@ -3,6 +3,7 @@ package content
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"net/http"
 
 	"github.com/danielgtaylor/huma/v2"
@@ -41,7 +42,8 @@ func RegisterAdmin(api huma.API, svc *Service) {
 	}, func(ctx context.Context, _ *struct{}) (*SectionsOutput, error) {
 		sections, err := svc.AdminContent(ctx)
 		if err != nil {
-			return nil, huma.Error500InternalServerError("erro ao carregar as seções", err)
+			slog.ErrorContext(ctx, "admin content failed", "error", err)
+			return nil, huma.Error500InternalServerError("erro ao carregar as seções")
 		}
 		out := &SectionsOutput{}
 		out.Body.Sections = sections
@@ -62,8 +64,11 @@ func RegisterAdmin(api huma.API, svc *Service) {
 			return nil, huma.Error404NotFound("Seção não encontrada.")
 		case errors.Is(err, ErrPayloadMismatch):
 			return nil, huma.Error422UnprocessableEntity("O conteúdo enviado não corresponde à seção: preencha o campo com o mesmo nome do slug.")
+		case errors.Is(err, ErrInvalidDeadline):
+			return nil, huma.Error422UnprocessableEntity("O prazo de confirmação (deadline) precisa ser uma data válida no formato AAAA-MM-DD.")
 		case err != nil:
-			return nil, huma.Error500InternalServerError("erro ao salvar a seção", err)
+			slog.ErrorContext(ctx, "update section failed", "error", err)
+			return nil, huma.Error500InternalServerError("erro ao salvar a seção")
 		}
 		return &SectionOutput{Body: updated}, nil
 	})

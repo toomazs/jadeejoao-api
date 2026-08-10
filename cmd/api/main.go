@@ -82,6 +82,11 @@ func run() error {
 		Addr:              ":" + cfg.Port,
 		Handler:           server.NewRouter(cfg, deps),
 		ReadHeaderTimeout: 10 * time.Second,
+		// Generous enough for admin uploads on slow links, short enough to
+		// shed slow-drip connections on the single replica.
+		ReadTimeout:  2 * time.Minute,
+		WriteTimeout: time.Minute,
+		IdleTimeout:  2 * time.Minute,
 	}
 
 	errCh := make(chan error, 1)

@@ -9,8 +9,10 @@ import (
 	"encoding/csv"
 	"fmt"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/xuri/excelize/v2"
+	"golang.org/x/text/encoding/charmap"
 
 	"github.com/jadeejoao/jadeejoao-api/internal/guests"
 )
@@ -84,6 +86,18 @@ func parseCSV(data []byte) ([]Row, error) {
 	// Strip the UTF-8 BOM Excel loves to prepend.
 	data = bytes.TrimPrefix(data, []byte("\xef\xbb\xbf"))
 
+	// Brazilian Excel's plain "CSV" export is Windows-1252 (ANSI), not UTF-8.
+	// Without transcoding, every accented name would be silently stored as
+	// mojibake with a corrupt lookup key. CP-1252 decodes any byte, so this
+	// only runs when the content is not already valid UTF-8.
+	if !utf8.Valid(data) {
+		decoded, err := charmap.Windows1252.NewDecoder().Bytes(data)
+		if err != nil {
+			return nil, &ParseError{Message: "O arquivo não está em um formato de texto reconhecido. Exporte como \"CSV UTF-8\" e envie novamente."}
+		}
+		data = decoded
+	}
+
 	// Brazilian Excel exports CSV with semicolons; sniff the header line.
 	headerLine, _, _ := bytes.Cut(data, []byte("\n"))
 	delimiter := ','
@@ -127,7 +141,10 @@ func rowsFromRecords(records [][]string) ([]Row, error) {
 		return nil, &ParseError{Message: "O arquivo está vazio. " + expectedHeadersHint}
 	}
 
-	known := map[string]string{"nome": "nome", "grupo": "grupo", "principal": "principal", "categoria": "categoria"}
+	// "presenca" is recognized so the API's own CSV export round-trips
+	// (export → edit in Excel → re-import); its values are IGNORED — the
+	// importer never writes attendance (AD-10).
+	known := map[string]string{"nome": "nome", "grupo": "grupo", "principal": "principal", "categoria": "categoria", "presenca": "presenca"}
 	columns := map[string]int{}
 	var unrecognized []string
 	for i, cell := range records[0] {

@@ -2,9 +2,11 @@ package importer
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/jadeejoao/jadeejoao-api/internal/importer/importerdb"
@@ -61,6 +63,11 @@ func (r *pgRepo) Apply(ctx context.Context, plan Plan) error {
 		var groupID uuid.UUID
 		if group.ExistingID != nil {
 			groupID = *group.ExistingID
+			if group.UpdateLabel {
+				if err := q.UpdateGroupLabel(ctx, importerdb.UpdateGroupLabelParams{ID: groupID, Label: group.Label}); err != nil {
+					return fmt.Errorf("rename group to %q: %w", group.Label, err)
+				}
+			}
 		} else {
 			created, err := q.InsertGuestGroup(ctx, group.Label)
 			if err != nil {
@@ -84,6 +91,13 @@ func (r *pgRepo) Apply(ctx context.Context, plan Plan) error {
 					GroupID: groupID, FullName: guest.FullName, NormalizedName: guest.NormalizedName,
 					IsPrimary: false, Category: guest.Category,
 				})
+				var pgErr *pgconn.PgError
+				if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+					// normalized_name UNIQUE tripped: the list changed
+					// between snapshot and apply. Roll everything back and
+					// let the admin retry against fresh state.
+					return fmt.Errorf("%w: %s", ErrNameCollision, guest.FullName)
+				}
 				if err != nil {
 					return fmt.Errorf("insert guest %q: %w", guest.FullName, err)
 				}
@@ -95,8 +109,9 @@ func (r *pgRepo) Apply(ctx context.Context, plan Plan) error {
 		}
 
 		// One exclusive statement keeps a single primary per group, covering
-		// DB members the file did not mention.
-		if primaryID != uuid.Nil {
+		// DB members the file did not mention. Only when the plan says so —
+		// partial uploads must not silently reassign an existing primary.
+		if group.EnforcePrimary && primaryID != uuid.Nil {
 			if err := q.SetGroupPrimary(ctx, importerdb.SetGroupPrimaryParams{
 				GuestID: primaryID, GroupID: groupID,
 			}); err != nil {

@@ -3,6 +3,7 @@ package guests
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"net/http"
 
 	"github.com/danielgtaylor/huma/v2"
@@ -123,7 +124,10 @@ func mapGuestErr(err error) error {
 		return huma.Error422UnprocessableEntity("O prazo para confirmar presença já passou. Fale diretamente com os noivos.")
 	case errors.Is(err, ErrInvalidMembers):
 		return huma.Error422UnprocessableEntity("A confirmação precisa incluir exatamente os convidados do seu grupo, sem repetições.")
+	case errors.Is(err, ErrInvalidAnswer):
+		return huma.Error422UnprocessableEntity("Resposta inválida: confirme com \"yes\" ou \"no\" para cada convidado.")
 	default:
-		return huma.Error500InternalServerError("Não conseguimos processar seu pedido agora. Tente novamente em instantes.", err)
+		slog.Error("guest request failed", "error", err)
+		return huma.Error500InternalServerError("Não conseguimos processar seu pedido agora. Tente novamente em instantes.")
 	}
 }

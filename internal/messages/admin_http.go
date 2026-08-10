@@ -3,6 +3,7 @@ package messages
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"net/http"
 	"time"
 
@@ -57,7 +58,8 @@ func RegisterAdmin(api huma.API, svc *Service) {
 	}, func(ctx context.Context, in *ListMessagesInput) (*MessagesOutput, error) {
 		items, err := svc.List(ctx, in.Status)
 		if err != nil {
-			return nil, huma.Error500InternalServerError("erro ao listar os recados", err)
+			slog.ErrorContext(ctx, "request failed", "error", err)
+			return nil, huma.Error500InternalServerError("erro ao listar os recados")
 		}
 		out := &MessagesOutput{}
 		out.Body.Messages = make([]MessageView, len(items))
@@ -84,7 +86,8 @@ func RegisterAdmin(api huma.API, svc *Service) {
 			return nil, huma.Error404NotFound("Recado não encontrado.")
 		}
 		if err != nil {
-			return nil, huma.Error500InternalServerError("erro ao moderar o recado", err)
+			slog.ErrorContext(ctx, "request failed", "error", err)
+			return nil, huma.Error500InternalServerError("erro ao moderar o recado")
 		}
 		return &ModeratedMessageOutput{Body: messageView(updated)}, nil
 	})

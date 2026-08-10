@@ -69,6 +69,40 @@ func TestBRCodeTruncatesNameAndCity(t *testing.T) {
 	assertCRCSelfConsistent(t, got)
 }
 
+func TestBRCodeSanitizesAccentedMerchantFields(t *testing.T) {
+	got := BRCode(Params{
+		Key:          "k",
+		MerchantName: "JOÃO & JADE",
+		MerchantCity: "SÃO JOSÉ DOS CAMPOS", // 19 runes: truncation must not split a rune
+	})
+	if !strings.Contains(got, "5911JOAO & JADE") {
+		t.Fatalf("name not sanitized to ASCII: %s", got)
+	}
+	if !strings.Contains(got, "6015SAO JOSE DOS CA") {
+		t.Fatalf("city not sanitized+rune-truncated: %s", got)
+	}
+	for _, r := range got {
+		if r > 127 {
+			t.Fatalf("payload contains non-ASCII rune %q: %s", r, got)
+		}
+	}
+	assertCRCSelfConsistent(t, got)
+}
+
+func TestBRCodeOmitsNonPositiveAmounts(t *testing.T) {
+	for _, amount := range []int64{0, -100} {
+		got := BRCode(Params{Key: "k", MerchantName: "A", MerchantCity: "B", AmountCentavos: amount})
+		// Currency (53) must be immediately followed by country (58): no 54.
+		if !strings.Contains(got, "53039865802BR") {
+			t.Fatalf("field 54 must be omitted for %d: %s", amount, got)
+		}
+		if strings.Contains(got, "-") {
+			t.Fatalf("negative amount leaked into payload: %s", got)
+		}
+		assertCRCSelfConsistent(t, got)
+	}
+}
+
 // assertCRCSelfConsistent recomputes the CRC over everything before the last
 // four characters and compares it to the embedded value.
 func assertCRCSelfConsistent(t *testing.T, code string) {

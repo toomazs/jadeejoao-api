@@ -12,19 +12,6 @@ import (
 	"github.com/google/uuid"
 )
 
-const countGiftContributions = `-- name: CountGiftContributions :one
-select count(*)
-from contributions
-where gift_id = $1
-`
-
-func (q *Queries) CountGiftContributions(ctx context.Context, giftID uuid.UUID) (int64, error) {
-	row := q.db.QueryRow(ctx, countGiftContributions, giftID)
-	var count int64
-	err := row.Scan(&count)
-	return count, err
-}
-
 const deactivateGift = `-- name: DeactivateGift :execrows
 update gifts
 set active = false
@@ -39,17 +26,40 @@ func (q *Queries) DeactivateGift(ctx context.Context, id uuid.UUID) (int64, erro
 	return result.RowsAffected(), nil
 }
 
-const deleteGiftRow = `-- name: DeleteGiftRow :execrows
+const deleteGiftIfNoContributions = `-- name: DeleteGiftIfNoContributions :execrows
 delete from gifts
-where id = $1
+where gifts.id = $1
+  and not exists (select 1 from contributions c where c.gift_id = gifts.id)
 `
 
-func (q *Queries) DeleteGiftRow(ctx context.Context, id uuid.UUID) (int64, error) {
-	result, err := q.db.Exec(ctx, deleteGiftRow, id)
+func (q *Queries) DeleteGiftIfNoContributions(ctx context.Context, id uuid.UUID) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteGiftIfNoContributions, id)
 	if err != nil {
 		return 0, err
 	}
 	return result.RowsAffected(), nil
+}
+
+const getContribution = `-- name: GetContribution :one
+select id, gift_id, group_id, contributor_name, amount_centavos, status, created_at, confirmed_at
+from contributions
+where id = $1
+`
+
+func (q *Queries) GetContribution(ctx context.Context, id uuid.UUID) (Contribution, error) {
+	row := q.db.QueryRow(ctx, getContribution, id)
+	var i Contribution
+	err := row.Scan(
+		&i.ID,
+		&i.GiftID,
+		&i.GroupID,
+		&i.ContributorName,
+		&i.AmountCentavos,
+		&i.Status,
+		&i.CreatedAt,
+		&i.ConfirmedAt,
+	)
+	return i, err
 }
 
 const getGiftForUpdate = `-- name: GetGiftForUpdate :one
@@ -314,8 +324,16 @@ func (q *Queries) SumGiftNonCancelled(ctx context.Context, giftID uuid.UUID) (in
 const updateContributionStatus = `-- name: UpdateContributionStatus :one
 update contributions
 set status = $1::text,
-    confirmed_at = case when $1::text = 'confirmed' then now() else confirmed_at end
+    confirmed_at = case
+        when $1::text = 'confirmed' then now()
+        when $1::text = 'cancelled' then null
+        else confirmed_at
+    end
 where id = $2
+  and (
+    ($1::text = 'confirmed' and status = 'declared')
+    or ($1::text = 'cancelled' and status in ('declared', 'confirmed'))
+  )
 returning id, gift_id, group_id, contributor_name, amount_centavos, status, created_at, confirmed_at
 `
 
@@ -324,6 +342,8 @@ type UpdateContributionStatusParams struct {
 	ID     uuid.UUID
 }
 
+// Legal transitions only: declared -> confirmed, declared|confirmed -> cancelled.
+// Cancelling clears confirmed_at; zero rows means unknown id OR illegal move.
 func (q *Queries) UpdateContributionStatus(ctx context.Context, arg UpdateContributionStatusParams) (Contribution, error) {
 	row := q.db.QueryRow(ctx, updateContributionStatus, arg.Status, arg.ID)
 	var i Contribution

@@ -151,6 +151,22 @@ func (q *Queries) SetGroupPrimary(ctx context.Context, arg SetGroupPrimaryParams
 	return err
 }
 
+const updateGroupLabel = `-- name: UpdateGroupLabel :exec
+update guest_groups
+set label = $2
+where id = $1
+`
+
+type UpdateGroupLabelParams struct {
+	ID    uuid.UUID
+	Label string
+}
+
+func (q *Queries) UpdateGroupLabel(ctx context.Context, arg UpdateGroupLabelParams) error {
+	_, err := q.db.Exec(ctx, updateGroupLabel, arg.ID, arg.Label)
+	return err
+}
+
 const updateGuestIdentity = `-- name: UpdateGuestIdentity :exec
 update guests
 set full_name = $2, category = $3, updated_at = now()

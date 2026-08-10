@@ -16,6 +16,7 @@ require (
 	github.com/pressly/goose/v3 v3.27.3
 	github.com/xuri/excelize/v2 v2.11.0
 	golang.org/x/text v0.40.0
+	golang.org/x/time v0.15.0
 )
 
 require (
@@ -48,5 +49,4 @@ require (
 	golang.org/x/crypto v0.54.0 // indirect
 	golang.org/x/net v0.57.0 // indirect
 	golang.org/x/sync v0.22.0 // indirect
-	golang.org/x/time v0.15.0 // indirect
 )

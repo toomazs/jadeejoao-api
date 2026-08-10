@@ -128,8 +128,10 @@ type MessagesIntroPayload struct {
 // payload field set — the one matching the slug. Modeling payloads as one
 // optional field per slug keeps every shape a named OpenAPI component and
 // makes client codegen trivial (section.hero is defined when slug == "hero").
+// Slug is omitempty because the same struct is the admin update body, where
+// the path — not the body — decides the slug.
 type Section struct {
-	Slug    string `json:"slug" enum:"hero,our_story,big_day,rsvp,getting_there,stay,gifts_intro,dress_code,good_practices,messages_intro"`
+	Slug    string `json:"slug,omitempty" enum:"hero,our_story,big_day,rsvp,getting_there,stay,gifts_intro,dress_code,good_practices,messages_intro" doc:"Always present in responses; ignored in the section-update request body (the path decides)."`
 	Enabled bool   `json:"enabled" doc:"Disabled sections are hidden from the public site (server-side)."`
 
 	Hero          *HeroPayload          `json:"hero,omitempty"`

@@ -139,6 +139,86 @@ func TestReconcilePrimaryFallsBackWhenMarkedRowConflicts(t *testing.T) {
 	}
 }
 
+func TestReconcileRecognizesRenamedGroupByMembers(t *testing.T) {
+	groupID, e1, e2 := uuid.New(), uuid.New(), uuid.New()
+	snap := Snapshot{
+		Groups: []ExistingGroup{{ID: groupID, Label: "Família Silva"}},
+		Guests: []ExistingGuest{
+			{ID: e1, GroupID: groupID, FullName: "Eduardo Silva", NormalizedName: "eduardo silva", IsPrimary: true},
+			{ID: e2, GroupID: groupID, FullName: "Ana Clara Silva", NormalizedName: "ana clara silva"},
+		},
+	}
+	// Same two members, new label: a rename, not a pile of homonym conflicts.
+	rows := []Row{
+		row(2, "Eduardo Silva", "Silva e Agregados", false, nil),
+		row(3, "Ana Clara Silva", "Silva e Agregados", false, nil),
+	}
+	plan, report := Reconcile(rows, snap)
+
+	if len(report.Conflicts) != 0 {
+		t.Fatalf("rename must not conflict: %+v", report.Conflicts)
+	}
+	if len(report.Updated) != 2 {
+		t.Fatalf("both members should update: %+v", report)
+	}
+	g := plan.Groups[0]
+	if g.ExistingID == nil || *g.ExistingID != groupID || !g.UpdateLabel || g.Label != "Silva e Agregados" {
+		t.Fatalf("group not recognized as rename: %+v", g)
+	}
+	// No explicit principal mark on an existing group: primary untouched.
+	if g.EnforcePrimary {
+		t.Fatalf("rename without explicit mark must not reassign primary: %+v", g)
+	}
+}
+
+func TestReconcileLoneHomonymNeverHijacksAGroup(t *testing.T) {
+	groupID := uuid.New()
+	snap := Snapshot{
+		Groups: []ExistingGroup{{ID: groupID, Label: "Família Costa"}},
+		Guests: []ExistingGuest{{
+			ID: uuid.New(), GroupID: groupID, FullName: "Maria Silva",
+			NormalizedName: "maria silva", IsPrimary: true,
+		}},
+	}
+	// A single matching name under a new label is ambiguous (rename vs new
+	// homonym) — it must stay a conflict, never a group takeover.
+	rows := []Row{row(2, "Maria Silva", "Família Silva", true, nil)}
+	plan, report := Reconcile(rows, snap)
+
+	if len(report.Conflicts) != 1 || len(plan.Groups) != 0 {
+		t.Fatalf("lone match must conflict: %+v / %+v", report.Conflicts, plan.Groups)
+	}
+}
+
+func TestReconcilePartialFileDoesNotReassignPrimary(t *testing.T) {
+	groupID, e1 := uuid.New(), uuid.New()
+	snap := Snapshot{
+		Groups: []ExistingGroup{{ID: groupID, Label: "Família Silva"}},
+		Guests: []ExistingGuest{
+			{ID: e1, GroupID: groupID, FullName: "Eduardo Silva", NormalizedName: "eduardo silva", IsPrimary: true},
+			{ID: uuid.New(), GroupID: groupID, FullName: "Ana Clara Silva", NormalizedName: "ana clara silva"},
+		},
+	}
+	// Partial upload mentioning only a NEW member of the existing group.
+	rows := []Row{
+		row(2, "Bebê Valentina Silva", "Família Silva", false, strPtr("baby")),
+		row(3, "Ana Clara Silva", "Família Silva", false, nil),
+	}
+	plan, _ := Reconcile(rows, snap)
+
+	g := plan.Groups[0]
+	if g.EnforcePrimary {
+		t.Fatalf("partial file without explicit mark must not enforce a primary: %+v", g)
+	}
+
+	// An explicit mark still wins.
+	rows[0].Principal = true
+	plan, _ = Reconcile(rows, snap)
+	if !plan.Groups[0].EnforcePrimary {
+		t.Fatal("explicit principal mark must enforce")
+	}
+}
+
 func TestReconcileNeverTouchesAttendance(t *testing.T) {
 	// Structural guarantee: the plan types carry no attendance fields, so the
 	// importer cannot write them. This test documents the ownership split.

@@ -3,6 +3,7 @@ package gifts
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"net/http"
 
 	"github.com/danielgtaylor/huma/v2"
@@ -36,7 +37,7 @@ type GiftsOutput struct {
 // PixPreviewInput asks for a side-effect-free copia-e-cola.
 type PixPreviewInput struct {
 	GiftID         string `path:"gift_id" format:"uuid"`
-	AmountCentavos int64  `query:"amount_centavos" minimum:"1" doc:"Amount in centavos. Optional for quota gifts (defaults to one quota); required for free-amount gifts."`
+	AmountCentavos int64  `query:"amount_centavos" minimum:"1" maximum:"10000000000" doc:"Amount in centavos. Optional for quota gifts (defaults to one quota); required for free-amount gifts."`
 }
 
 // PixOutput carries the PIX copia-e-cola string; the SPAs render the QR image
@@ -54,7 +55,7 @@ type ContributionInput struct {
 	GiftID string `path:"gift_id" format:"uuid"`
 	Body   struct {
 		ContributorName string `json:"contributor_name" minLength:"1" maxLength:"200" example:"Eduardo Silva"`
-		AmountCentavos  *int64 `json:"amount_centavos,omitempty" minimum:"1" doc:"Amount in centavos. Optional for quota gifts (defaults to one quota); required for free-amount gifts."`
+		AmountCentavos  *int64 `json:"amount_centavos,omitempty" minimum:"1" maximum:"10000000000" doc:"Amount in centavos. Optional for quota gifts (defaults to one quota); required for free-amount gifts."`
 		GroupID         string `json:"group_id,omitempty" format:"uuid" doc:"Guest group, auto-filled by the site after lookup."`
 	}
 }
@@ -83,7 +84,8 @@ func RegisterPublic(api huma.API, svc *Service) {
 	}, func(ctx context.Context, _ *struct{}) (*GiftsOutput, error) {
 		gifts, err := svc.ListGifts(ctx)
 		if err != nil {
-			return nil, huma.Error500InternalServerError("erro ao carregar a lista de presentes", err)
+			slog.ErrorContext(ctx, "list gifts failed", "error", err)
+			return nil, huma.Error500InternalServerError("erro ao carregar a lista de presentes")
 		}
 		out := &GiftsOutput{}
 		out.Body.Gifts = make([]GiftView, len(gifts))
@@ -179,7 +181,10 @@ func mapGiftErr(err error) error {
 		return huma.Error422UnprocessableEntity("Valor inválido para este presente. Para presentes com cota, o valor precisa ser um múltiplo da cota.")
 	case errors.Is(err, ErrNoUnitsLeft):
 		return huma.Error409Conflict("As cotas deste presente já foram todas reservadas. Escolha outro presente ou fale com os noivos.")
+	case errors.Is(err, ErrUnknownGroup):
+		return huma.Error422UnprocessableEntity("Grupo de convidados inválido. Refaça a busca pelo seu nome e tente novamente.")
 	default:
-		return huma.Error500InternalServerError("Não conseguimos processar seu pedido agora. Tente novamente em instantes.", err)
+		slog.Error("gift request failed", "error", err)
+		return huma.Error500InternalServerError("Não conseguimos processar seu pedido agora. Tente novamente em instantes.")
 	}
 }

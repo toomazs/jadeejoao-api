@@ -6,6 +6,7 @@ import (
 	"encoding/csv"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -18,6 +19,10 @@ var (
 	ErrDeadlinePassed = errors.New("rsvp deadline passed")
 	// ErrInvalidMembers: the submission does not cover exactly the group's members.
 	ErrInvalidMembers = errors.New("submission must cover exactly the group members")
+	// ErrInvalidAnswer: an attendance value other than yes/no. The transport
+	// enum already blocks these; the service re-validates so the domain rule
+	// never depends on the schema layer alone.
+	ErrInvalidAnswer = errors.New("attendance answer must be yes or no")
 )
 
 // Group is a guest group (one invitation).
@@ -134,6 +139,9 @@ func (s *Service) SubmitRSVP(ctx context.Context, groupID uuid.UUID, updates []A
 	}
 	seen := make(map[uuid.UUID]bool, len(updates))
 	for _, u := range updates {
+		if u.Attending != "yes" && u.Attending != "no" {
+			return Group{}, nil, ErrInvalidAnswer
+		}
 		if !memberIDs[u.GuestID] || seen[u.GuestID] {
 			return Group{}, nil, ErrInvalidMembers
 		}
@@ -198,6 +206,8 @@ func (s *Service) ExportCSV(ctx context.Context) ([]byte, error) {
 		return nil, err
 	}
 	var buf bytes.Buffer
+	// UTF-8 BOM so Excel-on-Windows renders "criança"/"não" correctly.
+	buf.WriteString("\xef\xbb\xbf")
 	w := csv.NewWriter(&buf)
 	if err := w.Write([]string{"grupo", "nome", "principal", "categoria", "presenca"}); err != nil {
 		return nil, err
@@ -250,6 +260,7 @@ func mustLoadLocation(name string) *time.Location {
 // deadlinePassed reports whether now is past the (inclusive) deadline date in
 // America/Sao_Paulo. An empty deadline means submissions are always open.
 func deadlinePassed(deadline string, now time.Time) (bool, error) {
+	deadline = strings.TrimSpace(deadline)
 	if deadline == "" {
 		return false, nil
 	}

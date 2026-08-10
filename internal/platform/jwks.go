@@ -27,9 +27,8 @@ type AuthValidator struct {
 	issuer        string
 	allowedEmails map[string]bool
 
-	once    sync.Once
+	mu      sync.Mutex
 	keyfunc jwt.Keyfunc
-	initErr error
 }
 
 // NewAuthValidator builds the validator. The JWKS is fetched lazily on first
@@ -52,20 +51,13 @@ func (v *AuthValidator) ValidateBearer(_ context.Context, authorization string) 
 		return "", fmt.Errorf("%w: missing bearer token", ErrUnauthorized)
 	}
 
-	v.once.Do(func() {
-		kf, err := keyfunc.NewDefault([]string{v.jwksURL})
-		if err != nil {
-			v.initErr = err
-			return
-		}
-		v.keyfunc = kf.Keyfunc
-	})
-	if v.initErr != nil {
-		return "", fmt.Errorf("%w: jwks unavailable: %s", ErrUnauthorized, v.initErr)
+	kf, err := v.keyfuncLazy()
+	if err != nil {
+		return "", fmt.Errorf("%w: jwks unavailable: %s", ErrUnauthorized, err)
 	}
 
 	claims := jwt.MapClaims{}
-	_, err := jwt.ParseWithClaims(raw, claims, v.keyfunc,
+	_, err = jwt.ParseWithClaims(raw, claims, kf,
 		jwt.WithValidMethods([]string{"ES256", "RS256"}),
 		jwt.WithExpirationRequired(),
 		jwt.WithIssuer(v.issuer),
@@ -80,4 +72,21 @@ func (v *AuthValidator) ValidateBearer(_ context.Context, authorization string) 
 		return "", fmt.Errorf("%w: %s is not an admin", ErrForbidden, email)
 	}
 	return email, nil
+}
+
+// keyfuncLazy initializes the JWKS client on first use and RETRIES on later
+// calls if that failed — a transient fetch error (cold-start DNS blip) must
+// never latch admin auth into a permanent 401.
+func (v *AuthValidator) keyfuncLazy() (jwt.Keyfunc, error) {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	if v.keyfunc != nil {
+		return v.keyfunc, nil
+	}
+	kf, err := keyfunc.NewDefault([]string{v.jwksURL})
+	if err != nil {
+		return nil, err
+	}
+	v.keyfunc = kf.Keyfunc
+	return v.keyfunc, nil
 }

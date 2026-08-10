@@ -2,6 +2,7 @@ package content
 
 import (
 	"context"
+	"log/slog"
 	"net/http"
 
 	"github.com/danielgtaylor/huma/v2"
@@ -29,7 +30,8 @@ func RegisterPublic(api huma.API, svc *Service) {
 	}, func(ctx context.Context, _ *struct{}) (*ContentOutput, error) {
 		sections, err := svc.PublicContent(ctx)
 		if err != nil {
-			return nil, huma.Error500InternalServerError("erro ao carregar o conteúdo do site", err)
+			slog.ErrorContext(ctx, "public content failed", "error", err)
+			return nil, huma.Error500InternalServerError("erro ao carregar o conteúdo do site")
 		}
 		out := &ContentOutput{}
 		out.Body.Sections = sections

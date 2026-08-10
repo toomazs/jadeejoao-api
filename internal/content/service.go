@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -13,6 +14,12 @@ var ErrUnknownSlug = errors.New("unknown section slug")
 
 // ErrPayloadMismatch marks updates whose payload field does not match the slug.
 var ErrPayloadMismatch = errors.New("payload does not match section slug")
+
+// ErrInvalidDeadline marks rsvp updates whose deadline is not a usable date.
+// The guests service enforces this value on every RSVP submission — an
+// unparseable deadline would turn all RSVPs into errors, and an empty one
+// would silently disable enforcement.
+var ErrInvalidDeadline = errors.New("rsvp deadline must be a valid YYYY-MM-DD date")
 
 // Row is the storage shape of a section, as the repository returns it.
 type Row struct {
@@ -70,6 +77,12 @@ func (s *Service) UpdateSection(ctx context.Context, slug string, update Section
 	payload := update.payloadValue(slug)
 	if payload == nil {
 		return Section{}, fmt.Errorf("%w: expected field %q", ErrPayloadMismatch, slug)
+	}
+	if slug == "rsvp" {
+		update.RSVP.Deadline = strings.TrimSpace(update.RSVP.Deadline)
+		if _, err := time.Parse("2006-01-02", update.RSVP.Deadline); err != nil {
+			return Section{}, ErrInvalidDeadline
+		}
 	}
 	raw, err := json.Marshal(payload)
 	if err != nil {

@@ -25,7 +25,17 @@ var (
 	// ErrInvalidGift: inconsistent gift configuration (e.g. max_units without
 	// quota_centavos).
 	ErrInvalidGift = errors.New("invalid gift configuration")
+	// ErrUnknownGroup: the optional group_id references no existing group.
+	ErrUnknownGroup = errors.New("unknown guest group")
+	// ErrInvalidTransition: the requested contribution status change is not a
+	// legal ledger transition.
+	ErrInvalidTransition = errors.New("invalid contribution status transition")
 )
+
+// maxAmountCentavos caps any money value (R$ 100.000.000,00): keeps the
+// progress SUM far from bigint overflow. Also enforced by schema tags and a
+// DB CHECK (migration 00004).
+const maxAmountCentavos = int64(10_000_000_000)
 
 // Gift is a gift with its computed progress.
 type Gift struct {
@@ -116,8 +126,10 @@ type Repo interface {
 
 	InsertGift(ctx context.Context, p GiftParams) (uuid.UUID, error)
 	UpdateGift(ctx context.Context, id uuid.UUID, p GiftParams) error
-	CountContributions(ctx context.Context, giftID uuid.UUID) (int64, error)
-	DeleteGiftRow(ctx context.Context, id uuid.UUID) error
+	// DeleteGiftIfNoContributions atomically deletes the gift only when its
+	// ledger is empty (single statement — no check-then-act race). Returns
+	// whether a row was deleted.
+	DeleteGiftIfNoContributions(ctx context.Context, id uuid.UUID) (bool, error)
 	DeactivateGift(ctx context.Context, id uuid.UUID) error
 	ListContributions(ctx context.Context, statusFilter string) ([]ContributionDetail, error)
 	UpdateContributionStatus(ctx context.Context, id uuid.UUID, status string) (Contribution, error)
@@ -221,21 +233,19 @@ func (s *Service) UpdateGift(ctx context.Context, id uuid.UUID, p GiftParams) (G
 
 // DeleteGift hard-deletes a gift with no contributions; a gift with ledger
 // history is deactivated instead — the contribution ledger is append-only
-// and never loses its referent (AD-6).
+// and never loses its referent (AD-6). The delete is a single conditional
+// statement, so a contribution landing concurrently simply flips the outcome
+// to deactivation instead of erroring.
 func (s *Service) DeleteGift(ctx context.Context, id uuid.UUID) (DeleteOutcome, error) {
-	if _, err := s.repo.GetGift(ctx, id); err != nil {
-		return "", err
-	}
-	count, err := s.repo.CountContributions(ctx, id)
+	deleted, err := s.repo.DeleteGiftIfNoContributions(ctx, id)
 	if err != nil {
 		return "", err
 	}
-	if count == 0 {
-		if err := s.repo.DeleteGiftRow(ctx, id); err != nil {
-			return "", err
-		}
+	if deleted {
 		return OutcomeDeleted, nil
 	}
+	// Either the gift has contributions or it does not exist; DeactivateGift
+	// resolves which (ErrNotFound when no row matches).
 	if err := s.repo.DeactivateGift(ctx, id); err != nil {
 		return "", err
 	}
@@ -287,10 +297,10 @@ func resolveAmount(quota *int64, provided *int64) (int64, error) {
 	return *provided, nil
 }
 
-// validateAmount enforces: positive, and an exact quota multiple when the
-// gift is sold in quotas.
+// validateAmount enforces: positive, bounded, and an exact quota multiple
+// when the gift is sold in quotas.
 func validateAmount(quota *int64, amount int64) error {
-	if amount <= 0 {
+	if amount <= 0 || amount > maxAmountCentavos {
 		return ErrInvalidAmount
 	}
 	if quota == nil {

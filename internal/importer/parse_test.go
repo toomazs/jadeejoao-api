@@ -127,6 +127,33 @@ func TestParseRejectsBadFiles(t *testing.T) {
 	}
 }
 
+// TestParseAcceptsOwnExport: the admin CSV export (BOM + presenca column)
+// must round-trip through the importer — presenca is recognized and ignored.
+func TestParseAcceptsOwnExport(t *testing.T) {
+	export := "\xef\xbb\xbfgrupo,nome,principal,categoria,presenca\nFamília Silva,Eduardo Silva,sim,adulto,sim\nFamília Silva,Ana Clara Silva,,criança,pendente\n"
+	rows, err := ParseFile("convidados.csv", []byte(export))
+	if err != nil {
+		t.Fatalf("own export rejected: %v", err)
+	}
+	if len(rows) != 2 || rows[0].Nome != "Eduardo Silva" || !rows[0].Principal {
+		t.Fatalf("unexpected rows: %+v", rows)
+	}
+}
+
+// TestParseTranscodesWindows1252: Brazilian Excel's plain CSV export is
+// ANSI/CP-1252; accented names must survive, not become mojibake.
+func TestParseTranscodesWindows1252(t *testing.T) {
+	// "nome,grupo\nJoão Conceição,Família\n" with õ/ã/ç as CP-1252 bytes.
+	csv := []byte("nome,grupo\nJo\xe3o Concei\xe7\xe3o,Fam\xedlia\n")
+	rows, err := ParseFile("lista.csv", csv)
+	if err != nil {
+		t.Fatalf("cp-1252 rejected: %v", err)
+	}
+	if len(rows) != 1 || rows[0].Nome != "João Conceição" || rows[0].Grupo != "Família" {
+		t.Fatalf("transcoding failed: %+v", rows)
+	}
+}
+
 func TestParseRowLevelIssues(t *testing.T) {
 	csv := "nome,grupo,categoria\nEduardo Silva,Família,marciano\n,Família,adulto\n"
 	rows, err := ParseFile("lista.csv", []byte(csv))

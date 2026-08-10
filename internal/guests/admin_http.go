@@ -2,6 +2,7 @@ package guests
 
 import (
 	"context"
+	"log/slog"
 	"net/http"
 
 	"github.com/danielgtaylor/huma/v2"
@@ -51,7 +52,8 @@ func RegisterAdmin(api huma.API, svc *Service) {
 	}, func(ctx context.Context, _ *struct{}) (*DashboardOutput, error) {
 		groups, counts, err := svc.AdminDashboard(ctx)
 		if err != nil {
-			return nil, huma.Error500InternalServerError("erro ao carregar o painel de convidados", err)
+			slog.ErrorContext(ctx, "request failed", "error", err)
+			return nil, huma.Error500InternalServerError("erro ao carregar o painel de convidados")
 		}
 		out := &DashboardOutput{}
 		out.Body.Groups = make([]GroupDashboardView, len(groups))
@@ -79,7 +81,8 @@ func RegisterAdmin(api huma.API, svc *Service) {
 	}, func(ctx context.Context, _ *struct{}) (*ExportOutput, error) {
 		data, err := svc.ExportCSV(ctx)
 		if err != nil {
-			return nil, huma.Error500InternalServerError("erro ao exportar a lista de convidados", err)
+			slog.ErrorContext(ctx, "request failed", "error", err)
+			return nil, huma.Error500InternalServerError("erro ao exportar a lista de convidados")
 		}
 		return &ExportOutput{
 			ContentType:        "text/csv; charset=utf-8",

@@ -24,10 +24,13 @@ type bucketEntry struct {
 }
 
 // sweep configuration: forget buckets idle for 10 minutes, checking at most
-// every 5 minutes, so the map cannot grow unbounded.
+// every 5 minutes, so the map cannot grow unbounded over time. maxBuckets is
+// a hard ceiling against key floods: once reached (after a forced sweep),
+// new keys are denied instead of allocated.
 const (
 	sweepEvery = 5 * time.Minute
 	bucketTTL  = 10 * time.Minute
+	maxBuckets = 10000
 )
 
 // NewRateLimiter allows perMinute sustained requests with the given burst,
@@ -48,19 +51,32 @@ func (l *RateLimiter) Allow(key string) bool {
 
 	now := time.Now()
 	if now.Sub(l.lastSweep) > sweepEvery {
-		for k, b := range l.buckets {
-			if now.Sub(b.lastSeen) > bucketTTL {
-				delete(l.buckets, k)
-			}
-		}
-		l.lastSweep = now
+		l.sweep(now, bucketTTL)
 	}
 
 	entry, ok := l.buckets[key]
 	if !ok {
+		if len(l.buckets) >= maxBuckets {
+			// Forced sweep with an aggressive TTL; if the map is still full,
+			// deny rather than grow without bound.
+			l.sweep(now, time.Minute)
+			if len(l.buckets) >= maxBuckets {
+				return false
+			}
+		}
 		entry = &bucketEntry{limiter: rate.NewLimiter(l.rate, l.burst)}
 		l.buckets[key] = entry
 	}
 	entry.lastSeen = now
 	return entry.limiter.Allow()
+}
+
+// sweep drops buckets idle longer than ttl. Caller holds the lock.
+func (l *RateLimiter) sweep(now time.Time, ttl time.Duration) {
+	for k, b := range l.buckets {
+		if now.Sub(b.lastSeen) > ttl {
+			delete(l.buckets, k)
+		}
+	}
+	l.lastSweep = now
 }

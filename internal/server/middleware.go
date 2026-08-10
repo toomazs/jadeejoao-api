@@ -92,6 +92,7 @@ func cors(allowed []string) func(http.Handler) http.Handler {
 				h.Set("Vary", "Origin")
 				h.Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
 				h.Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+				h.Set("Access-Control-Expose-Headers", "X-Request-Id")
 				h.Set("Access-Control-Max-Age", "86400")
 			}
 			if r.Method == http.MethodOptions {
@@ -123,18 +124,30 @@ func publicPostRateLimit(limiter *platform.RateLimiter) func(http.Handler) http.
 	}
 }
 
-// clientIP extracts the caller IP. Railway fronts the service with a proxy
-// that sets X-Forwarded-For; fall back to RemoteAddr for local runs.
+// clientIP extracts the caller IP for rate limiting. Railway's proxy APPENDS
+// the real client to X-Forwarded-For, so the trustworthy value is the LAST
+// hop — the first entries are client-supplied and trivially spoofable, which
+// would hand every request a fresh rate-limit bucket. Fall back to RemoteAddr
+// for local runs.
 func clientIP(r *http.Request) string {
 	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-		if first, _, ok := strings.Cut(xff, ","); ok {
-			return strings.TrimSpace(first)
-		}
-		return strings.TrimSpace(xff)
+		parts := strings.Split(xff, ",")
+		return strings.TrimSpace(parts[len(parts)-1])
 	}
 	host := r.RemoteAddr
 	if i := strings.LastIndex(host, ":"); i > 0 {
 		host = host[:i]
 	}
 	return host
+}
+
+// maxRequestBytes caps every request body. Public JSON bodies are already
+// limited by Huma (1 MB); this bounds the admin multipart uploads too.
+func maxRequestBytes(limit int64) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			r.Body = http.MaxBytesReader(w, r.Body, limit)
+			next.ServeHTTP(w, r)
+		})
+	}
 }

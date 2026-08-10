@@ -81,10 +81,12 @@ golangci-lint run   # https://golangci-lint.run/docs/welcome/install/
 
 ## Error language note
 
-Business-rule errors (RSVP deadline, quota amounts, lookup misses, importer
-reports) return RFC 9457 `application/problem+json` with PT-BR details.
-Huma's schema-validation messages (missing/typed-wrong fields) are English —
-the SPAs validate client-side, so guests never see them.
+Every guest-facing problem detail is PT-BR: business-rule errors (RSVP
+deadline, quota amounts, lookup misses, importer reports) and the top-level
+detail of schema-validation failures ("Dados inválidos…", via a Huma error
+override). The per-field entries inside `errors[]` remain Huma's structured
+English output — machine-readable data the SPAs consume, not guest-facing
+copy. Internal error details are logged with the request id, never returned.
 
 ## Deploying to Railway
 

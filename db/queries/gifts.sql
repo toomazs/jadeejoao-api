@@ -46,14 +46,10 @@ set title = $2, description = $3, image_url = $4, goal_centavos = $5,
     quota_centavos = $6, max_units = $7, active = $8, sort = $9
 where id = $1;
 
--- name: CountGiftContributions :one
-select count(*)
-from contributions
-where gift_id = $1;
-
--- name: DeleteGiftRow :execrows
+-- name: DeleteGiftIfNoContributions :execrows
 delete from gifts
-where id = $1;
+where gifts.id = $1
+  and not exists (select 1 from contributions c where c.gift_id = gifts.id);
 
 -- name: DeactivateGift :execrows
 update gifts
@@ -68,9 +64,24 @@ join gifts g on g.id = c.gift_id
 where (@status_filter::text = '' or c.status = @status_filter::text)
 order by c.created_at desc;
 
+-- name: GetContribution :one
+select id, gift_id, group_id, contributor_name, amount_centavos, status, created_at, confirmed_at
+from contributions
+where id = $1;
+
+-- Legal transitions only: declared -> confirmed, declared|confirmed -> cancelled.
+-- Cancelling clears confirmed_at; zero rows means unknown id OR illegal move.
 -- name: UpdateContributionStatus :one
 update contributions
 set status = @status::text,
-    confirmed_at = case when @status::text = 'confirmed' then now() else confirmed_at end
+    confirmed_at = case
+        when @status::text = 'confirmed' then now()
+        when @status::text = 'cancelled' then null
+        else confirmed_at
+    end
 where id = @id
+  and (
+    (@status::text = 'confirmed' and status = 'declared')
+    or (@status::text = 'cancelled' and status in ('declared', 'confirmed'))
+  )
 returning id, gift_id, group_id, contributor_name, amount_centavos, status, created_at, confirmed_at;

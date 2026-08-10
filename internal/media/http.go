@@ -3,6 +3,7 @@ package media
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"net/http"
 	"time"
 
@@ -72,7 +73,8 @@ func RegisterAdmin(api huma.API, svc *Service) {
 			return nil, huma.Error422UnprocessableEntity("Formato não suportado. Envie uma imagem JPG, PNG, WebP, GIF ou AVIF.")
 		}
 		if err != nil {
-			return nil, huma.Error500InternalServerError("erro ao enviar a imagem", err)
+			slog.ErrorContext(ctx, "request failed", "error", err)
+			return nil, huma.Error500InternalServerError("erro ao enviar a imagem")
 		}
 		return &MediaOutput{Body: view(m)}, nil
 	})
@@ -86,7 +88,8 @@ func RegisterAdmin(api huma.API, svc *Service) {
 	}, func(ctx context.Context, _ *struct{}) (*MediaListOutput, error) {
 		items, err := svc.List(ctx)
 		if err != nil {
-			return nil, huma.Error500InternalServerError("erro ao listar as imagens", err)
+			slog.ErrorContext(ctx, "request failed", "error", err)
+			return nil, huma.Error500InternalServerError("erro ao listar as imagens")
 		}
 		out := &MediaListOutput{}
 		out.Body.Media = make([]MediaView, len(items))
@@ -113,7 +116,8 @@ func RegisterAdmin(api huma.API, svc *Service) {
 		case errors.Is(err, ErrNotFound):
 			return nil, huma.Error404NotFound("Imagem não encontrada.")
 		case err != nil:
-			return nil, huma.Error500InternalServerError("erro ao excluir a imagem", err)
+			slog.ErrorContext(ctx, "request failed", "error", err)
+			return nil, huma.Error500InternalServerError("erro ao excluir a imagem")
 		}
 		return nil, nil
 	})

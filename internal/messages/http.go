@@ -2,6 +2,8 @@ package messages
 
 import (
 	"context"
+	"errors"
+	"log/slog"
 	"net/http"
 
 	"github.com/danielgtaylor/huma/v2"
@@ -48,8 +50,12 @@ func RegisterPublic(api huma.API, svc *Service) {
 			groupID = &parsed
 		}
 		msg, err := svc.Create(ctx, groupID, in.Body.AuthorName, in.Body.Body)
+		if errors.Is(err, ErrUnknownGroup) {
+			return nil, huma.Error422UnprocessableEntity("Grupo de convidados inválido. Refaça a busca pelo seu nome e tente novamente.")
+		}
 		if err != nil {
-			return nil, huma.Error500InternalServerError("Não conseguimos salvar seu recado agora. Tente novamente em instantes.", err)
+			slog.ErrorContext(ctx, "create message failed", "error", err)
+			return nil, huma.Error500InternalServerError("Não conseguimos salvar seu recado agora. Tente novamente em instantes.")
 		}
 		out := &MessageCreatedOutput{}
 		out.Body.MessageID = msg.ID.String()

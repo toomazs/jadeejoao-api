@@ -4,15 +4,22 @@ import (
 	"context"
 	"errors"
 	"io"
+	"log/slog"
 	"net/http"
 
 	"github.com/danielgtaylor/huma/v2"
 )
 
-// ImportForm is the multipart upload payload.
+// ImportForm is the multipart upload payload. The content-type list includes
+// application/vnd.ms-excel (what Windows browsers send for .csv when Excel is
+// installed) and text/plain — the real gate is the extension + content sniff
+// in ParseFile.
 type ImportForm struct {
-	File huma.FormFile `form:"file" contentType:"text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/octet-stream" required:"true"`
+	File huma.FormFile `form:"file" contentType:"text/csv,text/plain,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/octet-stream" required:"true"`
 }
+
+// maxImportBytes caps the uploaded sheet (raw size).
+const maxImportBytes = 20 << 20 // 20 MB
 
 // ImportInput wraps the multipart form.
 type ImportInput struct {
@@ -45,17 +52,25 @@ func RegisterAdmin(api huma.API, svc *Service) {
 		if !form.File.IsSet {
 			return nil, huma.Error422UnprocessableEntity("Envie o arquivo no campo \"file\".")
 		}
-		data, err := io.ReadAll(form.File)
+		data, err := io.ReadAll(io.LimitReader(form.File, maxImportBytes+1))
 		if err != nil {
-			return nil, huma.Error500InternalServerError("erro ao ler o arquivo enviado", err)
+			slog.ErrorContext(ctx, "read import upload failed", "error", err)
+			return nil, huma.Error500InternalServerError("erro ao ler o arquivo enviado")
+		}
+		if len(data) > maxImportBytes {
+			return nil, huma.Error422UnprocessableEntity("Arquivo muito grande: o limite é 20 MB.")
 		}
 		report, err := svc.Import(ctx, form.File.Filename, data)
 		var parseErr *ParseError
 		if errors.As(err, &parseErr) {
 			return nil, huma.Error422UnprocessableEntity(parseErr.Message)
 		}
+		if errors.Is(err, ErrNameCollision) {
+			return nil, huma.Error409Conflict("A lista mudou enquanto o arquivo era processado e um nome entrou em conflito. Nada foi gravado — tente importar novamente.")
+		}
 		if err != nil {
-			return nil, huma.Error500InternalServerError("erro ao processar a importação", err)
+			slog.ErrorContext(ctx, "import failed", "error", err)
+			return nil, huma.Error500InternalServerError("erro ao processar a importação")
 		}
 		out := &ImportOutput{}
 		out.Body.Added = orEmpty(report.Added)

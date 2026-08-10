@@ -162,6 +162,23 @@ func TestSubmitRSVPEmptyDeadlineAlwaysOpen(t *testing.T) {
 	}
 }
 
+func TestSubmitRSVPRejectsInvalidAnswers(t *testing.T) {
+	repo, m1, m2 := newFixture()
+	svc := NewService(repo, fixedDeadline("2027-07-07"), at("2027-01-01 10:00"))
+
+	for _, bad := range []string{"maybe", "pending", "", "YES"} {
+		_, _, err := svc.SubmitRSVP(context.Background(), repo.group.ID, []AttendanceUpdate{
+			{GuestID: m1, Attending: bad}, {GuestID: m2, Attending: "no"},
+		})
+		if !errors.Is(err, ErrInvalidAnswer) {
+			t.Fatalf("answer %q: got %v, want ErrInvalidAnswer", bad, err)
+		}
+	}
+	if repo.applied != nil {
+		t.Fatal("invalid answers must not write")
+	}
+}
+
 func TestSubmitRSVPMemberCoverage(t *testing.T) {
 	repo, m1, m2 := newFixture()
 	svc := NewService(repo, fixedDeadline("2027-07-07"), at("2027-01-01 10:00"))
