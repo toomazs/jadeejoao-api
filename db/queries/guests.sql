@@ -22,7 +22,7 @@ where id = $1 and group_id = $2;
 -- name: SuggestGuestNames :many
 select full_name
 from guests
-where normalized_name like @prefix::text || '%'
+where normalized_name like @prefix::text || '%' escape '\'
 order by full_name
 limit 8;
 

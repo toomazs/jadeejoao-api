@@ -175,7 +175,7 @@ func (q *Queries) ListGroupMembers(ctx context.Context, groupID uuid.UUID) ([]Li
 const suggestGuestNames = `-- name: SuggestGuestNames :many
 select full_name
 from guests
-where normalized_name like $1::text || '%'
+where normalized_name like $1::text || '%' escape '\'
 order by full_name
 limit 8
 `

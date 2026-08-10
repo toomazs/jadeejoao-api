@@ -63,16 +63,20 @@ func run() error {
 	}
 
 	var mailer guests.Mailer
-	if cfg.ResendAPIKey != "" && len(cfg.NotifyEmails) > 0 {
+	switch {
+	case cfg.ResendAPIKey != "" && len(cfg.NotifyEmails) > 0:
 		mailer = platform.NewResendMailer(cfg.ResendAPIKey, cfg.NotifyFrom, cfg.NotifyEmails)
 		slog.Info("rsvp notifications enabled", "recipients", len(cfg.NotifyEmails))
+	case cfg.ResendAPIKey != "":
+		slog.Warn("RESEND_API_KEY is set but RSVP_NOTIFY_EMAILS is empty — rsvp notifications DISABLED")
 	}
 
 	contentSvc := content.NewService(content.NewRepo(pool))
+	guestsSvc := guests.NewService(guests.NewRepo(pool), contentSvc, nil, mailer)
 	deps := server.Deps{
 		Pool:    pool,
 		Content: contentSvc,
-		Guests:  guests.NewService(guests.NewRepo(pool), contentSvc, nil, mailer),
+		Guests:  guestsSvc,
 		Gifts: gifts.NewService(gifts.NewRepo(pool), gifts.PixIdentity{
 			Key:          cfg.PIXKey,
 			MerchantName: cfg.PIXMerchantName,
@@ -108,7 +112,13 @@ func run() error {
 		slog.Info("shutting down")
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-		if err := srv.Shutdown(shutdownCtx); err != nil && !errors.Is(err, context.DeadlineExceeded) {
+		err := srv.Shutdown(shutdownCtx)
+		// Give in-flight RSVP notification emails a bounded chance to leave
+		// (attempt + retry can take up to ~22s; most finish far sooner).
+		drainCtx, drainCancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer drainCancel()
+		guestsSvc.DrainNotifications(drainCtx)
+		if err != nil && !errors.Is(err, context.DeadlineExceeded) {
 			return err
 		}
 		return nil

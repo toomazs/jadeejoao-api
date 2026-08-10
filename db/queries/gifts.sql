@@ -41,17 +41,16 @@ insert into gifts (title, description, image_url, kind, platform, external_url,
 values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 returning id;
 
+-- Kind flips are guarded IN the statement (no check-then-act race with a
+-- concurrent Declare): the update only applies when the kind is unchanged or
+-- the gift has no ledger rows. Zero rows = unknown id OR locked kind.
 -- name: UpdateGift :execrows
 update gifts
 set title = $2, description = $3, image_url = $4, kind = $5, platform = $6,
     external_url = $7, goal_centavos = $8, quota_centavos = $9, max_units = $10,
     active = $11, sort = $12
-where id = $1;
-
--- name: CountGiftContributions :one
-select count(*)
-from contributions
-where gift_id = $1;
+where gifts.id = $1
+  and (gifts.kind = $5 or not exists (select 1 from contributions c where c.gift_id = gifts.id));
 
 -- name: DeleteGiftIfNoContributions :execrows
 delete from gifts

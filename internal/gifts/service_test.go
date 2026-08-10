@@ -76,27 +76,27 @@ func (f *fakeRepo) InsertGift(_ context.Context, p GiftParams) (uuid.UUID, error
 	return g.ID, nil
 }
 
+// UpdateGift mirrors the SQL's atomic guard: a kind flip on a gift with
+// ledger rows is refused as ErrKindLocked.
 func (f *fakeRepo) UpdateGift(_ context.Context, id uuid.UUID, p GiftParams) error {
 	for i := range f.gifts {
-		if f.gifts[i].ID == id {
-			f.gifts[i].Title, f.gifts[i].Description, f.gifts[i].ImageURL = p.Title, p.Description, p.ImageURL
-			f.gifts[i].Kind, f.gifts[i].Platform, f.gifts[i].ExternalURL = p.Kind, p.Platform, p.ExternalURL
-			f.gifts[i].GoalCentavos, f.gifts[i].QuotaCentavos, f.gifts[i].MaxUnits = p.GoalCentavos, p.QuotaCentavos, p.MaxUnits
-			f.gifts[i].Active, f.gifts[i].Sort = p.Active, p.Sort
-			return nil
+		if f.gifts[i].ID != id {
+			continue
 		}
+		if f.gifts[i].Kind != p.Kind {
+			for _, c := range f.contribs {
+				if c.GiftID == id {
+					return ErrKindLocked
+				}
+			}
+		}
+		f.gifts[i].Title, f.gifts[i].Description, f.gifts[i].ImageURL = p.Title, p.Description, p.ImageURL
+		f.gifts[i].Kind, f.gifts[i].Platform, f.gifts[i].ExternalURL = p.Kind, p.Platform, p.ExternalURL
+		f.gifts[i].GoalCentavos, f.gifts[i].QuotaCentavos, f.gifts[i].MaxUnits = p.GoalCentavos, p.QuotaCentavos, p.MaxUnits
+		f.gifts[i].Active, f.gifts[i].Sort = p.Active, p.Sort
+		return nil
 	}
 	return ErrNotFound
-}
-
-func (f *fakeRepo) CountContributions(_ context.Context, giftID uuid.UUID) (int64, error) {
-	var n int64
-	for _, c := range f.contribs {
-		if c.GiftID == giftID {
-			n++
-		}
-	}
-	return n, nil
 }
 
 func (f *fakeRepo) DeleteGiftIfNoContributions(_ context.Context, id uuid.UUID) (bool, error) {
@@ -313,9 +313,13 @@ func TestValidateGiftParamsKinds(t *testing.T) {
 		{"pix with platform rejected", GiftParams{Kind: KindPix, Platform: ptr("amazon")}, false},
 		{"link happy", GiftParams{Kind: KindLink, Platform: ptr("amazon"), ExternalURL: &url}, true},
 		{"link without url", GiftParams{Kind: KindLink, Platform: ptr("amazon")}, false},
-		{"link with http url", GiftParams{Kind: KindLink, ExternalURL: &httpURL}, false},
-		{"link with goal", GiftParams{Kind: KindLink, ExternalURL: &url, GoalCentavos: ptr[int64](1000)}, false},
-		{"link with quota", GiftParams{Kind: KindLink, ExternalURL: &url, QuotaCentavos: ptr[int64](1000)}, false},
+		{"link without platform", GiftParams{Kind: KindLink, ExternalURL: &url}, false},
+		{"link blank platform", GiftParams{Kind: KindLink, Platform: ptr("  "), ExternalURL: &url}, false},
+		{"link with http url", GiftParams{Kind: KindLink, Platform: ptr("amazon"), ExternalURL: &httpURL}, false},
+		{"link uppercase scheme ok", GiftParams{Kind: KindLink, Platform: ptr("amazon"), ExternalURL: ptr("HTTPS://WWW.Amazon.com.br/registry/x")}, true},
+		{"link scheme only", GiftParams{Kind: KindLink, Platform: ptr("amazon"), ExternalURL: ptr("https://")}, false},
+		{"link with goal", GiftParams{Kind: KindLink, Platform: ptr("amazon"), ExternalURL: &url, GoalCentavos: ptr[int64](1000)}, false},
+		{"link with quota", GiftParams{Kind: KindLink, Platform: ptr("amazon"), ExternalURL: &url, QuotaCentavos: ptr[int64](1000)}, false},
 		{"unknown kind", GiftParams{Kind: "raffle"}, false},
 	}
 	for _, tc := range cases {
@@ -350,7 +354,8 @@ func TestUpdateGiftKindLockedByLedger(t *testing.T) {
 	}
 
 	url := "https://www.amazon.com.br/registry/jadeejoao"
-	_, err := svc.UpdateGift(ctx, free.ID, GiftParams{Title: "Barba", Kind: KindLink, ExternalURL: &url, Active: true})
+	_, err := svc.UpdateGift(ctx, free.ID, GiftParams{Title: "Barba", Kind: KindLink,
+		Platform: ptr("amazon"), ExternalURL: &url, Active: true})
 	if !errors.Is(err, ErrKindLocked) {
 		t.Fatalf("got %v, want ErrKindLocked", err)
 	}
@@ -358,6 +363,28 @@ func TestUpdateGiftKindLockedByLedger(t *testing.T) {
 	// Same kind stays editable.
 	if _, err := svc.UpdateGift(ctx, free.ID, GiftParams{Title: "Barba do noivo", Kind: KindPix, GoalCentavos: ptr[int64](30000), Active: true}); err != nil {
 		t.Fatalf("same-kind update rejected: %v", err)
+	}
+}
+
+// A PUT omitting kind must be rejected, never silently defaulted to pix —
+// that would convert a link card and erase its URL.
+func TestUpdateGiftRequiresExplicitKind(t *testing.T) {
+	repo := &fakeRepo{}
+	svc := NewService(repo, testIdentity)
+	ctx := context.Background()
+
+	link, err := svc.CreateGift(ctx, GiftParams{Title: "Lista ML", Kind: KindLink,
+		Platform: ptr("mercadolivre"), ExternalURL: ptr("https://www.mercadolivre.com.br/presentes/x"), Active: true})
+	if err != nil {
+		t.Fatalf("create link gift: %v", err)
+	}
+
+	_, err = svc.UpdateGift(ctx, link.ID, GiftParams{Title: "Lista ML editada", Active: true})
+	if !errors.Is(err, ErrKindRequired) {
+		t.Fatalf("got %v, want ErrKindRequired", err)
+	}
+	if repo.gifts[0].ExternalURL == nil {
+		t.Fatal("rejected update must not have touched the gift")
 	}
 }
 

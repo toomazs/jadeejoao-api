@@ -12,19 +12,6 @@ import (
 	"github.com/google/uuid"
 )
 
-const countGiftContributions = `-- name: CountGiftContributions :one
-select count(*)
-from contributions
-where gift_id = $1
-`
-
-func (q *Queries) CountGiftContributions(ctx context.Context, giftID uuid.UUID) (int64, error) {
-	row := q.db.QueryRow(ctx, countGiftContributions, giftID)
-	var count int64
-	err := row.Scan(&count)
-	return count, err
-}
-
 const deactivateGift = `-- name: DeactivateGift :execrows
 update gifts
 set active = false
@@ -399,7 +386,8 @@ update gifts
 set title = $2, description = $3, image_url = $4, kind = $5, platform = $6,
     external_url = $7, goal_centavos = $8, quota_centavos = $9, max_units = $10,
     active = $11, sort = $12
-where id = $1
+where gifts.id = $1
+  and (gifts.kind = $5 or not exists (select 1 from contributions c where c.gift_id = gifts.id))
 `
 
 type UpdateGiftParams struct {
@@ -417,6 +405,9 @@ type UpdateGiftParams struct {
 	Sort          int32
 }
 
+// Kind flips are guarded IN the statement (no check-then-act race with a
+// concurrent Declare): the update only applies when the kind is unchanged or
+// the gift has no ledger rows. Zero rows = unknown id OR locked kind.
 func (q *Queries) UpdateGift(ctx context.Context, arg UpdateGiftParams) (int64, error) {
 	result, err := q.db.Exec(ctx, updateGift,
 		arg.ID,

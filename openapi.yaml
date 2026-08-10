@@ -391,7 +391,7 @@ components:
           format: uri
           type: string
         kind:
-          description: "Defaults to pix. pix: metas/cotas. link: external registry card (requires external_url, forbids money fields)."
+          description: "Defaults to pix on create; REQUIRED on update. pix: metas/cotas. link: external registry card (requires platform + https external_url, forbids money fields)."
           enum:
             - pix
             - link
@@ -402,10 +402,11 @@ components:
           minimum: 1
           type: integer
         platform:
-          description: Store slug for link gifts (mercadolivre, amazon, camicado, …).
+          description: Store slug, required for link gifts (mercadolivre, amazon, camicado, …); the SPAs map it to a logo badge.
           examples:
             - mercadolivre
           maxLength: 40
+          minLength: 1
           type: string
         quota_centavos:
           format: int64

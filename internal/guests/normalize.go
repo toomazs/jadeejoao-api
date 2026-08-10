@@ -22,6 +22,9 @@ func Normalize(name string) string {
 		if unicode.Is(unicode.Mn, r) {
 			continue // combining mark: drops the accent, keeps the base rune
 		}
+		if unicode.IsControl(r) && !unicode.IsSpace(r) {
+			continue // NUL and friends would 500 in Postgres text params
+		}
 		b.WriteRune(r)
 	}
 	recomposed := norm.NFC.String(b.String())

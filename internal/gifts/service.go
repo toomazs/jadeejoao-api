@@ -7,6 +7,7 @@ package gifts
 import (
 	"context"
 	"errors"
+	"net/url"
 	"strings"
 	"time"
 
@@ -37,6 +38,9 @@ var (
 	// ErrKindLocked: kind is immutable once the gift has contributions —
 	// the ledger must never point at a link card (AD-6).
 	ErrKindLocked = errors.New("gift kind is locked by existing contributions")
+	// ErrKindRequired: updates must state the kind explicitly — a defaulted
+	// omission would silently convert a link card to pix and erase its URL.
+	ErrKindRequired = errors.New("gift kind is required on update")
 )
 
 // Gift kinds: 'pix' is the metas/cotas model; 'link' is an external store
@@ -145,8 +149,11 @@ type Repo interface {
 	CreateContribution(ctx context.Context, req NewContribution) (Contribution, error)
 
 	InsertGift(ctx context.Context, p GiftParams) (uuid.UUID, error)
+	// UpdateGift applies the change atomically; a kind flip only succeeds
+	// when the gift has no ledger rows (guarded in the statement itself, so
+	// a concurrent Declare cannot race it). Returns ErrNotFound or
+	// ErrKindLocked accordingly.
 	UpdateGift(ctx context.Context, id uuid.UUID, p GiftParams) error
-	CountContributions(ctx context.Context, giftID uuid.UUID) (int64, error)
 	// DeleteGiftIfNoContributions atomically deletes the gift only when its
 	// ledger is empty (single statement — no check-then-act race). Returns
 	// whether a row was deleted.
@@ -211,6 +218,11 @@ func (s *Service) Declare(ctx context.Context, giftID uuid.UUID, groupID *uuid.U
 	if err != nil {
 		return Contribution{}, "", err
 	}
+	// Active first: an inactive gift is a 404 regardless of kind, so the
+	// public surface never reveals what a hidden gift is (matches PixPreview).
+	if !gift.Active {
+		return Contribution{}, "", ErrNotFound
+	}
 	if gift.Kind == KindLink {
 		return Contribution{}, "", ErrExternalGift
 	}
@@ -247,25 +259,15 @@ func (s *Service) CreateGift(ctx context.Context, p GiftParams) (Gift, error) {
 	return s.repo.GetGift(ctx, id)
 }
 
-// UpdateGift validates and replaces a gift's editable fields. Kind is
-// immutable once the gift has contributions (AD-6): the ledger must never
-// end up pointing at a link card.
+// UpdateGift validates and replaces a gift's editable fields. The kind must
+// be stated explicitly (no silent conversion of a link card), and flipping
+// it is atomic in the repo: immutable once the gift has ledger rows (AD-6).
 func (s *Service) UpdateGift(ctx context.Context, id uuid.UUID, p GiftParams) (Gift, error) {
+	if p.Kind == "" {
+		return Gift{}, ErrKindRequired
+	}
 	if err := validateGiftParams(&p); err != nil {
 		return Gift{}, err
-	}
-	current, err := s.repo.GetGift(ctx, id)
-	if err != nil {
-		return Gift{}, err
-	}
-	if current.Kind != p.Kind {
-		count, err := s.repo.CountContributions(ctx, id)
-		if err != nil {
-			return Gift{}, err
-		}
-		if count > 0 {
-			return Gift{}, ErrKindLocked
-		}
 	}
 	if err := s.repo.UpdateGift(ctx, id, p); err != nil {
 		return Gift{}, err
@@ -322,9 +324,18 @@ func validateGiftParams(p *GiftParams) error {
 			return ErrInvalidGift
 		}
 	case KindLink:
-		if p.ExternalURL == nil || !strings.HasPrefix(*p.ExternalURL, "https://") {
+		if p.Platform == nil || strings.TrimSpace(*p.Platform) == "" {
 			return ErrInvalidGift
 		}
+		if p.ExternalURL == nil {
+			return ErrInvalidGift
+		}
+		trimmed := strings.TrimSpace(*p.ExternalURL)
+		parsed, err := url.Parse(trimmed)
+		if err != nil || !strings.EqualFold(parsed.Scheme, "https") || parsed.Host == "" {
+			return ErrInvalidGift
+		}
+		*p.ExternalURL = trimmed
 		if p.GoalCentavos != nil || p.QuotaCentavos != nil || p.MaxUnits != nil {
 			return ErrInvalidGift
 		}

@@ -33,11 +33,16 @@ type Deps struct {
 	Auth     AdminAuthenticator
 }
 
-// Public POST rate limits: generous for guests retrying a lookup, hostile to
-// scripted abuse. Per IP, in-process (single replica).
+// Public rate limits, per IP, in-process (single replica). POSTs: generous
+// for guests retrying a lookup, hostile to scripted abuse. The suggest GET
+// gets its own roomier bucket — one typeahead session fires several debounced
+// requests and must not drain the write budget of a shared IP.
 const (
 	publicPostPerMinute = 10
 	publicPostBurst     = 20
+
+	suggestPerMinute = 60
+	suggestBurst     = 40
 )
 
 // maxRequestSize bounds any request body, chiefly the admin multipart
@@ -66,7 +71,10 @@ func NewRouter(cfg *platform.Config, deps Deps) http.Handler {
 	r.Use(recoverPanics)
 	r.Use(cors(cfg.CORSOrigins))
 	r.Use(maxRequestBytes(maxRequestSize))
-	r.Use(publicPostRateLimit(platform.NewRateLimiter(publicPostPerMinute, publicPostBurst)))
+	r.Use(publicRateLimit(
+		platform.NewRateLimiter(publicPostPerMinute, publicPostBurst),
+		platform.NewRateLimiter(suggestPerMinute, suggestBurst),
+	))
 	NewAPI(r, deps)
 	return r
 }

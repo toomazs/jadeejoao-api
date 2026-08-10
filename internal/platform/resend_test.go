@@ -3,8 +3,10 @@ package platform
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -42,15 +44,34 @@ func TestResendMailerSend(t *testing.T) {
 	}
 }
 
-func TestResendMailerNon2xxIsError(t *testing.T) {
+func TestResendMailer4xxIsPermanentWithBody(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusUnprocessableEntity)
+		_, _ = w.Write([]byte(`{"message":"domain not verified"}`))
 	}))
 	t.Cleanup(srv.Close)
 
 	m := NewResendMailer("k", "f", []string{"t@example.com"})
 	m.baseURL = srv.URL
-	if err := m.Send(context.Background(), "s", "h"); err == nil {
-		t.Fatal("non-2xx must surface an error for logging")
+	err := m.Send(context.Background(), "s", "h")
+	if !errors.Is(err, ErrPermanentSend) {
+		t.Fatalf("4xx must be permanent, got %v", err)
+	}
+	if !strings.Contains(err.Error(), "domain not verified") {
+		t.Fatalf("error must carry the response body: %v", err)
+	}
+}
+
+func TestResendMailer5xxIsRetryable(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusBadGateway)
+	}))
+	t.Cleanup(srv.Close)
+
+	m := NewResendMailer("k", "f", []string{"t@example.com"})
+	m.baseURL = srv.URL
+	err := m.Send(context.Background(), "s", "h")
+	if err == nil || errors.Is(err, ErrPermanentSend) {
+		t.Fatalf("5xx must be a retryable error, got %v", err)
 	}
 }

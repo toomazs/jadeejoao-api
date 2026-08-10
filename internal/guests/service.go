@@ -9,9 +9,13 @@ import (
 	"html"
 	"log/slog"
 	"strings"
+	"sync"
 	"time"
+	"unicode"
 
 	"github.com/google/uuid"
+
+	"github.com/jadeejoao/jadeejoao-api/internal/platform"
 )
 
 var (
@@ -97,6 +101,7 @@ type Service struct {
 	now              func() time.Time
 	mailer           Mailer
 	notifyRetryDelay time.Duration
+	notifyWG         sync.WaitGroup
 }
 
 // NewService wires the guests service. now is injectable for tests (nil =
@@ -137,6 +142,10 @@ func (s *Service) SubmitRSVP(ctx context.Context, groupID uuid.UUID, updates []A
 		return Group{}, nil, ErrDeadlinePassed
 	}
 
+	group, err := s.repo.GetGroup(ctx, groupID)
+	if err != nil {
+		return Group{}, nil, err
+	}
 	members, err := s.repo.ListMembers(ctx, groupID)
 	if err != nil {
 		return Group{}, nil, err
@@ -148,29 +157,33 @@ func (s *Service) SubmitRSVP(ctx context.Context, groupID uuid.UUID, updates []A
 	for _, m := range members {
 		memberIDs[m.ID] = true
 	}
-	seen := make(map[uuid.UUID]bool, len(updates))
+	answers := make(map[uuid.UUID]string, len(updates))
 	for _, u := range updates {
 		if u.Attending != "yes" && u.Attending != "no" {
 			return Group{}, nil, ErrInvalidAnswer
 		}
-		if !memberIDs[u.GuestID] || seen[u.GuestID] {
+		if !memberIDs[u.GuestID] || answers[u.GuestID] != "" {
 			return Group{}, nil, ErrInvalidMembers
 		}
-		seen[u.GuestID] = true
+		answers[u.GuestID] = u.Attending
 	}
-	if len(seen) != len(members) {
+	if len(answers) != len(members) {
 		return Group{}, nil, ErrInvalidMembers
 	}
 
 	if err := s.repo.UpdateAttendances(ctx, groupID, updates); err != nil {
 		return Group{}, nil, err
 	}
-	group, refreshed, err := s.groupWithMembers(ctx, groupID)
-	if err != nil {
-		return Group{}, nil, err
+	// The submission covers every member, so the fresh state is fully
+	// determined locally — no refetch that could fail after the commit and
+	// swallow the notification.
+	merged := make([]Member, len(members))
+	for i, m := range members {
+		m.Attending = answers[m.ID]
+		merged[i] = m
 	}
-	s.notifyRSVP(group, refreshed, updates)
-	return group, refreshed, nil
+	s.notifyRSVP(group, merged, updates)
+	return group, merged, nil
 }
 
 // notifyRSVP emails the couple one summary — who responded and each member's
@@ -194,21 +207,42 @@ func (s *Service) notifyRSVP(group Group, members []Member, updates []Attendance
 	}
 	subject, body := buildRSVPEmail(group, members)
 	retryDelay := s.notifyRetryDelay
+	s.notifyWG.Add(1)
 	go func() {
+		defer s.notifyWG.Done()
 		send := func() error {
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
 			return s.mailer.Send(ctx, subject, body)
 		}
 		err := send()
-		if err != nil {
+		// Retry once — but not on permanent (4xx) rejections, where an
+		// identical second request cannot succeed.
+		if err != nil && !errors.Is(err, platform.ErrPermanentSend) {
 			time.Sleep(retryDelay)
 			err = send()
 		}
 		if err != nil {
-			slog.Error("rsvp notification failed after retry", "group", group.Label, "error", err)
+			slog.Error("rsvp notification failed", "group", group.Label, "error", err)
 		}
 	}()
+}
+
+// DrainNotifications waits for in-flight notification goroutines, bounded by
+// ctx — called on graceful shutdown so a just-submitted RSVP's email is not
+// killed silently with the process (AD-15 promises failures are at least
+// logged).
+func (s *Service) DrainNotifications(ctx context.Context) {
+	done := make(chan struct{})
+	go func() {
+		s.notifyWG.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-ctx.Done():
+		slog.Warn("shutdown before rsvp notifications drained")
+	}
 }
 
 // buildRSVPEmail renders the PT-BR notification listing every member's answer.
@@ -229,7 +263,15 @@ func buildRSVPEmail(group Group, members []Member) (subject, body string) {
 		}
 		fmt.Fprintf(&items, "<li><strong>%s</strong> — %s</li>", html.EscapeString(m.FullName), answer)
 	}
-	subject = fmt.Sprintf("Confirmação de presença: %s", group.Label)
+	// Strip control characters: the label is header-bound text and an
+	// imported sheet cell could carry CR/LF.
+	cleanLabel := strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) {
+			return -1
+		}
+		return r
+	}, group.Label)
+	subject = fmt.Sprintf("Confirmação de presença: %s", cleanLabel)
 	body = fmt.Sprintf(
 		"<h2>%s respondeu ao convite! 🎉</h2><ul>%s</ul><p>Resumo do grupo: %d sim, %d não.</p>",
 		html.EscapeString(group.Label), items.String(), yes, no,
@@ -252,6 +294,9 @@ func (s *Service) SuggestNames(ctx context.Context, query string) ([]string, err
 	}
 	if names == nil {
 		names = []string{}
+	}
+	if len(names) > 8 {
+		names = names[:8] // defense in depth over the SQL LIMIT
 	}
 	return names, nil
 }

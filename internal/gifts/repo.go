@@ -133,6 +133,9 @@ func (r *pgRepo) InsertGift(ctx context.Context, p GiftParams) (uuid.UUID, error
 	})
 }
 
+// UpdateGift's statement refuses a kind flip on a gift with ledger rows
+// (single conditional UPDATE — no check-then-act window against a concurrent
+// Declare). Zero affected rows means unknown id or a locked kind.
 func (r *pgRepo) UpdateGift(ctx context.Context, id uuid.UUID, p GiftParams) error {
 	affected, err := r.q.UpdateGift(ctx, giftsdb.UpdateGiftParams{
 		ID: id, Title: p.Title, Description: p.Description, ImageUrl: p.ImageURL,
@@ -144,13 +147,14 @@ func (r *pgRepo) UpdateGift(ctx context.Context, id uuid.UUID, p GiftParams) err
 		return err
 	}
 	if affected == 0 {
-		return ErrNotFound
+		if _, getErr := r.q.GetGiftWithProgress(ctx, id); errors.Is(getErr, pgx.ErrNoRows) {
+			return ErrNotFound
+		} else if getErr != nil {
+			return getErr
+		}
+		return ErrKindLocked
 	}
 	return nil
-}
-
-func (r *pgRepo) CountContributions(ctx context.Context, giftID uuid.UUID) (int64, error) {
-	return r.q.CountGiftContributions(ctx, giftID)
 }
 
 func (r *pgRepo) DeleteGiftIfNoContributions(ctx context.Context, id uuid.UUID) (bool, error) {

@@ -15,6 +15,8 @@ func TestNormalize(t *testing.T) {
 		{"cedilla", "François Muniz", "francois muniz"},
 		{"uppercase with accents", "MARIA JOSÉ", "maria jose"},
 		{"hyphen kept", "Ana-Clara Ribeiro", "ana-clara ribeiro"},
+		{"control chars stripped", "ab\x00c\x07d", "abcd"},
+		{"tabs still separate words", "Ana\tClara", "ana clara"},
 		{"mixed everything", "  ÂNgeLa  CristINA  ", "angela cristina"},
 		{"empty", "", ""},
 		{"only spaces", "   ", ""},

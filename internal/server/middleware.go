@@ -104,18 +104,25 @@ func cors(allowed []string) func(http.Handler) http.Handler {
 	}
 }
 
-// publicPostRateLimit guards every public POST (lookup, RSVP, contributions,
-// messages) plus the guest-name typeahead GET — the one read that walks the
-// guest list — with a per-IP token bucket. Admin routes are exempt (JWT).
-// 429 responses use RFC 9457 with a PT-BR detail.
-func publicPostRateLimit(limiter *platform.RateLimiter) func(http.Handler) http.Handler {
+// publicRateLimit guards every public POST (lookup, RSVP, contributions,
+// messages) with one per-IP token bucket, and the guest-name typeahead GET —
+// the one read that walks the guest list — with a SEPARATE, roomier bucket:
+// debounced suggest chatter from a shared IP (family household, CGNAT) must
+// never starve the critical POSTs. Admin routes are exempt (JWT). 429
+// responses use RFC 9457 with a PT-BR detail.
+func publicRateLimit(posts, suggest *platform.RateLimiter) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			limited := (r.Method == http.MethodPost &&
+			var limiter *platform.RateLimiter
+			switch {
+			case r.Method == http.MethodPost &&
 				strings.HasPrefix(r.URL.Path, platform.APIBase+"/") &&
-				!strings.HasPrefix(r.URL.Path, platform.APIBase+"/admin")) ||
-				(r.Method == http.MethodGet && r.URL.Path == platform.APIBase+"/guests/suggest")
-			if limited && !limiter.Allow(clientIP(r)) {
+				!strings.HasPrefix(r.URL.Path, platform.APIBase+"/admin"):
+				limiter = posts
+			case r.Method == http.MethodGet && r.URL.Path == platform.APIBase+"/guests/suggest":
+				limiter = suggest
+			}
+			if limiter != nil && !limiter.Allow(clientIP(r)) {
 				w.Header().Set("Content-Type", "application/problem+json")
 				w.WriteHeader(http.StatusTooManyRequests)
 				_, _ = w.Write([]byte(`{"title":"Too Many Requests","status":429,"detail":"Muitas tentativas em pouco tempo. Aguarde um instante e tente de novo."}`))

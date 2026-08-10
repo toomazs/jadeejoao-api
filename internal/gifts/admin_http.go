@@ -16,8 +16,8 @@ type GiftParamsBody struct {
 	Title         string  `json:"title" minLength:"1" maxLength:"200"`
 	Description   string  `json:"description,omitempty" maxLength:"2000"`
 	ImageURL      *string `json:"image_url,omitempty" format:"uri"`
-	Kind          string  `json:"kind,omitempty" enum:"pix,link" doc:"Defaults to pix. pix: metas/cotas. link: external registry card (requires external_url, forbids money fields)."`
-	Platform      *string `json:"platform,omitempty" maxLength:"40" example:"mercadolivre" doc:"Store slug for link gifts (mercadolivre, amazon, camicado, …)."`
+	Kind          string  `json:"kind,omitempty" enum:"pix,link" doc:"Defaults to pix on create; REQUIRED on update. pix: metas/cotas. link: external registry card (requires platform + https external_url, forbids money fields)."`
+	Platform      *string `json:"platform,omitempty" minLength:"1" maxLength:"40" example:"mercadolivre" doc:"Store slug, required for link gifts (mercadolivre, amazon, camicado, …); the SPAs map it to a logo badge."`
 	ExternalURL   *string `json:"external_url,omitempty" format:"uri" maxLength:"2000" doc:"https URL of the couple's registry (link gifts only)."`
 	GoalCentavos  *int64  `json:"goal_centavos,omitempty" minimum:"1" maximum:"10000000000"`
 	QuotaCentavos *int64  `json:"quota_centavos,omitempty" minimum:"1" maximum:"10000000000"`
@@ -253,7 +253,9 @@ func mapAdminGiftErr(err error) error {
 	case errors.Is(err, ErrInvalidGift):
 		return huma.Error422UnprocessableEntity("Configuração inválida: presentes PIX não levam link/plataforma (e max_units exige quota_centavos); presentes de lista externa exigem external_url https e não levam meta, cota ou max_units.")
 	case errors.Is(err, ErrKindLocked):
-		return huma.Error422UnprocessableEntity("O tipo deste presente não pode mudar: ele já recebeu contribuições. Desative-o e crie outro.")
+		return huma.Error422UnprocessableEntity("O tipo deste presente não pode mudar: ele já tem histórico de contribuições (mesmo canceladas). Desative-o e crie outro.")
+	case errors.Is(err, ErrKindRequired):
+		return huma.Error422UnprocessableEntity("Informe o tipo do presente (kind: pix ou link) ao editar — a omissão poderia converter o presente sem querer.")
 	default:
 		slog.Error("admin gift request failed", "error", err)
 		return huma.Error500InternalServerError("erro ao salvar o presente")

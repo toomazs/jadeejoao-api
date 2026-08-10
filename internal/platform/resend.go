@@ -4,10 +4,16 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"time"
 )
+
+// ErrPermanentSend marks a 4xx rejection from Resend: retrying the identical
+// request cannot succeed (bad key, unverified domain, rejected recipient).
+var ErrPermanentSend = errors.New("permanent email rejection")
 
 // ResendMailer sends transactional email through the Resend REST API
 // (https://resend.com). Used for RSVP notifications to the couple; the
@@ -58,7 +64,15 @@ func (m *ResendMailer) Send(ctx context.Context, subject, html string) error {
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return fmt.Errorf("resend: unexpected status %d", resp.StatusCode)
+		// The body says WHY (unverified domain, bad recipient…) — this is a
+		// log-only feature, so the error message is the whole diagnosis.
+		detail, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		err := fmt.Errorf("resend: status %d: %s", resp.StatusCode, bytes.TrimSpace(detail))
+		if resp.StatusCode >= 400 && resp.StatusCode < 500 {
+			return fmt.Errorf("%w: %w", ErrPermanentSend, err)
+		}
+		return err
 	}
+	_, _ = io.Copy(io.Discard, resp.Body) // drain for connection reuse
 	return nil
 }

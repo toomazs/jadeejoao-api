@@ -38,16 +38,27 @@ func TestAdminGiftCRUD(t *testing.T) {
 		t.Fatalf("expected config detail: %s", resp.Body.String())
 	}
 
-	// Update.
+	// Update (kind stated explicitly, as the contract now requires).
 	id := repo.gifts[0].ID
 	resp = api.Put(fmt.Sprintf("/gifts/%s", id), map[string]any{
-		"title": "Cafeteira turbinada", "goal_centavos": 60000, "active": false, "sort": 5,
+		"title": "Cafeteira turbinada", "kind": "pix", "goal_centavos": 60000, "active": false, "sort": 5,
 	})
 	if resp.Code != http.StatusOK {
 		t.Fatalf("update = %d: %s", resp.Code, resp.Body.String())
 	}
 	if repo.gifts[0].Title != "Cafeteira turbinada" || repo.gifts[0].Active {
 		t.Fatalf("update not applied: %+v", repo.gifts[0])
+	}
+
+	// PUT without kind: 422 with the explicit-kind message.
+	resp = api.Put(fmt.Sprintf("/gifts/%s", id), map[string]any{
+		"title": "Sem kind", "active": true, "sort": 5,
+	})
+	if resp.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("kindless update = %d, want 422", resp.Code)
+	}
+	if !strings.Contains(resp.Body.String(), "Informe o tipo") {
+		t.Fatalf("expected explicit-kind detail: %s", resp.Body.String())
 	}
 }
 

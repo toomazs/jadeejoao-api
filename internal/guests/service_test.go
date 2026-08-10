@@ -3,11 +3,15 @@ package guests
 import (
 	"context"
 	"errors"
+	"fmt"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/jadeejoao/jadeejoao-api/internal/platform"
 )
 
 type fakeRepo struct {
@@ -51,14 +55,40 @@ func (f *fakeRepo) UpdateAttendances(_ context.Context, _ uuid.UUID, updates []A
 	return nil
 }
 
+// SuggestNames speaks real LIKE semantics (escapes, %, _) so the escaping in
+// the service is load-bearing in tests: if escapeLikePrefix were the identity
+// function, a "%%%" query would match every name here too.
 func (f *fakeRepo) SuggestNames(_ context.Context, normalizedPrefix string) ([]string, error) {
 	var out []string
 	for _, m := range f.members {
-		if len(out) < 8 && strings.HasPrefix(Normalize(m.FullName), normalizedPrefix) {
+		if likePrefixMatch(normalizedPrefix, Normalize(m.FullName)) {
 			out = append(out, m.FullName)
 		}
 	}
 	return out, nil
+}
+
+// likePrefixMatch interprets pattern as a SQL LIKE prefix (escape '\').
+func likePrefixMatch(pattern, s string) bool {
+	var sb strings.Builder
+	sb.WriteString("^")
+	runes := []rune(pattern)
+	for i := 0; i < len(runes); i++ {
+		switch runes[i] {
+		case '\\':
+			if i+1 < len(runes) {
+				i++
+				sb.WriteString(regexp.QuoteMeta(string(runes[i])))
+			}
+		case '%':
+			sb.WriteString(".*")
+		case '_':
+			sb.WriteString(".")
+		default:
+			sb.WriteString(regexp.QuoteMeta(string(runes[i])))
+		}
+	}
+	return regexp.MustCompile(sb.String()).MatchString(s)
 }
 
 func (f *fakeRepo) ListAllGroups(_ context.Context) ([]Group, error) {
@@ -239,12 +269,16 @@ func TestEscapeLikePrefix(t *testing.T) {
 
 type fakeMailer struct {
 	sent     chan [2]string
-	failures int // fail this many Sends before succeeding
+	failures int   // fail this many Sends before succeeding
+	failErr  error // when set, every Send fails with this error
 	attempts int
 }
 
 func (f *fakeMailer) Send(_ context.Context, subject, html string) error {
 	f.attempts++
+	if f.failErr != nil {
+		return f.failErr
+	}
 	if f.attempts <= f.failures {
 		return errors.New("smtp down")
 	}
@@ -276,6 +310,9 @@ func TestSubmitRSVPNotifiesCouple(t *testing.T) {
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("notification never sent")
+	}
+	if mailer.attempts != 1 {
+		t.Fatalf("attempts = %d, want exactly 1", mailer.attempts)
 	}
 }
 
@@ -320,6 +357,41 @@ func TestNotifyRetriesOnce(t *testing.T) {
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("retry never delivered")
+	}
+}
+
+// Permanent (4xx) rejections are not retried — an identical request cannot
+// succeed and the retry would only delay the log line.
+func TestNotifyNoRetryOnPermanent(t *testing.T) {
+	repo, m1, m2 := newFixture()
+	mailer := &fakeMailer{sent: make(chan [2]string, 1), failErr: fmt.Errorf("resend: status 422: %w", platform.ErrPermanentSend)}
+	svc := NewService(repo, fixedDeadline(""), at("2027-01-01 10:00"), mailer)
+	svc.notifyRetryDelay = 10 * time.Millisecond
+
+	if _, _, err := svc.SubmitRSVP(context.Background(), repo.group.ID, []AttendanceUpdate{
+		{GuestID: m1, Attending: "yes"}, {GuestID: m2, Attending: "yes"},
+	}); err != nil {
+		t.Fatalf("SubmitRSVP: %v", err)
+	}
+	drainCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	svc.DrainNotifications(drainCtx)
+	if mailer.attempts != 1 {
+		t.Fatalf("attempts = %d, want 1 (no retry on permanent)", mailer.attempts)
+	}
+}
+
+func TestSuggestNamesCapsAtEight(t *testing.T) {
+	repo := &fakeRepo{group: Group{ID: uuid.New(), Label: "Grupo"}}
+	for i := 0; i < 9; i++ {
+		repo.members = append(repo.members, Member{ID: uuid.New(), FullName: fmt.Sprintf("Zeta Convidado %d", i), Attending: "pending"})
+	}
+	names, err := NewService(repo, fixedDeadline(""), nil, nil).SuggestNames(context.Background(), "zeta")
+	if err != nil {
+		t.Fatalf("SuggestNames: %v", err)
+	}
+	if len(names) != 8 {
+		t.Fatalf("got %d names, want the cap of 8", len(names))
 	}
 }
 
