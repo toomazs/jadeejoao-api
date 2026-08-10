@@ -7,6 +7,7 @@ package gifts
 import (
 	"context"
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -30,6 +31,19 @@ var (
 	// ErrInvalidTransition: the requested contribution status change is not a
 	// legal ledger transition.
 	ErrInvalidTransition = errors.New("invalid contribution status transition")
+	// ErrExternalGift: PIX/contribution operations targeted a kind=link gift
+	// — external registries are reserved directly at the store.
+	ErrExternalGift = errors.New("gift is an external registry link")
+	// ErrKindLocked: kind is immutable once the gift has contributions —
+	// the ledger must never point at a link card (AD-6).
+	ErrKindLocked = errors.New("gift kind is locked by existing contributions")
+)
+
+// Gift kinds: 'pix' is the metas/cotas model; 'link' is an external store
+// registry card (Mercado Livre, Amazon, Camicado, …).
+const (
+	KindPix  = "pix"
+	KindLink = "link"
 )
 
 // maxAmountCentavos caps any money value (R$ 100.000.000,00): keeps the
@@ -43,6 +57,9 @@ type Gift struct {
 	Title             string
 	Description       string
 	ImageURL          *string
+	Kind              string  // KindPix | KindLink
+	Platform          *string // link gifts: store slug the SPAs map to a logo
+	ExternalURL       *string // link gifts: the couple's registry URL
 	GoalCentavos      *int64
 	QuotaCentavos     *int64
 	MaxUnits          *int32
@@ -91,6 +108,9 @@ type GiftParams struct {
 	Title         string
 	Description   string
 	ImageURL      *string
+	Kind          string
+	Platform      *string
+	ExternalURL   *string
 	GoalCentavos  *int64
 	QuotaCentavos *int64
 	MaxUnits      *int32
@@ -126,6 +146,7 @@ type Repo interface {
 
 	InsertGift(ctx context.Context, p GiftParams) (uuid.UUID, error)
 	UpdateGift(ctx context.Context, id uuid.UUID, p GiftParams) error
+	CountContributions(ctx context.Context, giftID uuid.UUID) (int64, error)
 	// DeleteGiftIfNoContributions atomically deletes the gift only when its
 	// ledger is empty (single statement — no check-then-act race). Returns
 	// whether a row was deleted.
@@ -169,6 +190,9 @@ func (s *Service) PixPreview(ctx context.Context, giftID uuid.UUID, amount *int6
 	if !gift.Active {
 		return "", 0, ErrNotFound
 	}
+	if gift.Kind == KindLink {
+		return "", 0, ErrExternalGift
+	}
 	value, err := resolveAmount(gift.QuotaCentavos, amount)
 	if err != nil {
 		return "", 0, err
@@ -186,6 +210,9 @@ func (s *Service) Declare(ctx context.Context, giftID uuid.UUID, groupID *uuid.U
 	gift, err := s.repo.GetGift(ctx, giftID)
 	if err != nil {
 		return Contribution{}, "", err
+	}
+	if gift.Kind == KindLink {
+		return Contribution{}, "", ErrExternalGift
 	}
 	value, err := resolveAmount(gift.QuotaCentavos, amount)
 	if err != nil {
@@ -210,7 +237,7 @@ func (s *Service) AdminListGifts(ctx context.Context) ([]Gift, error) {
 
 // CreateGift validates and creates a gift, returning it with (zero) progress.
 func (s *Service) CreateGift(ctx context.Context, p GiftParams) (Gift, error) {
-	if err := validateGiftParams(p); err != nil {
+	if err := validateGiftParams(&p); err != nil {
 		return Gift{}, err
 	}
 	id, err := s.repo.InsertGift(ctx, p)
@@ -220,10 +247,25 @@ func (s *Service) CreateGift(ctx context.Context, p GiftParams) (Gift, error) {
 	return s.repo.GetGift(ctx, id)
 }
 
-// UpdateGift validates and replaces a gift's editable fields.
+// UpdateGift validates and replaces a gift's editable fields. Kind is
+// immutable once the gift has contributions (AD-6): the ledger must never
+// end up pointing at a link card.
 func (s *Service) UpdateGift(ctx context.Context, id uuid.UUID, p GiftParams) (Gift, error) {
-	if err := validateGiftParams(p); err != nil {
+	if err := validateGiftParams(&p); err != nil {
 		return Gift{}, err
+	}
+	current, err := s.repo.GetGift(ctx, id)
+	if err != nil {
+		return Gift{}, err
+	}
+	if current.Kind != p.Kind {
+		count, err := s.repo.CountContributions(ctx, id)
+		if err != nil {
+			return Gift{}, err
+		}
+		if count > 0 {
+			return Gift{}, ErrKindLocked
+		}
 	}
 	if err := s.repo.UpdateGift(ctx, id, p); err != nil {
 		return Gift{}, err
@@ -265,9 +307,28 @@ func (s *Service) ModerateContribution(ctx context.Context, id uuid.UUID, status
 	return s.repo.UpdateContributionStatus(ctx, id, status)
 }
 
-// validateGiftParams rejects configurations the domain cannot honor.
-func validateGiftParams(p GiftParams) error {
-	if p.MaxUnits != nil && p.QuotaCentavos == nil {
+// validateGiftParams rejects configurations the domain cannot honor. The
+// same shape rules live as a DB CHECK (migration 00005).
+func validateGiftParams(p *GiftParams) error {
+	if p.Kind == "" {
+		p.Kind = KindPix
+	}
+	switch p.Kind {
+	case KindPix:
+		if p.ExternalURL != nil || p.Platform != nil {
+			return ErrInvalidGift
+		}
+		if p.MaxUnits != nil && p.QuotaCentavos == nil {
+			return ErrInvalidGift
+		}
+	case KindLink:
+		if p.ExternalURL == nil || !strings.HasPrefix(*p.ExternalURL, "https://") {
+			return ErrInvalidGift
+		}
+		if p.GoalCentavos != nil || p.QuotaCentavos != nil || p.MaxUnits != nil {
+			return ErrInvalidGift
+		}
+	default:
 		return ErrInvalidGift
 	}
 	return nil

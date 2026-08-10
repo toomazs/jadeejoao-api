@@ -105,14 +105,16 @@ func cors(allowed []string) func(http.Handler) http.Handler {
 }
 
 // publicPostRateLimit guards every public POST (lookup, RSVP, contributions,
-// messages) with a per-IP token bucket. Admin routes are exempt — they are
-// JWT-guarded. 429 responses use RFC 9457 with a PT-BR detail.
+// messages) plus the guest-name typeahead GET — the one read that walks the
+// guest list — with a per-IP token bucket. Admin routes are exempt (JWT).
+// 429 responses use RFC 9457 with a PT-BR detail.
 func publicPostRateLimit(limiter *platform.RateLimiter) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			limited := r.Method == http.MethodPost &&
+			limited := (r.Method == http.MethodPost &&
 				strings.HasPrefix(r.URL.Path, platform.APIBase+"/") &&
-				!strings.HasPrefix(r.URL.Path, platform.APIBase+"/admin")
+				!strings.HasPrefix(r.URL.Path, platform.APIBase+"/admin")) ||
+				(r.Method == http.MethodGet && r.URL.Path == platform.APIBase+"/guests/suggest")
 			if limited && !limiter.Allow(clientIP(r)) {
 				w.Header().Set("Content-Type", "application/problem+json")
 				w.WriteHeader(http.StatusTooManyRequests)

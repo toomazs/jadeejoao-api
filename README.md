@@ -25,13 +25,16 @@ codec, rate limiting) live in `internal/platform` and never import domain
 modules. Only this API holds Supabase credentials: the Data API is closed and
 every table carries deny-all RLS (defense-in-depth, migration `00001`).
 
-Key domain rules: guests have no accounts (exact normalized-name lookup, no
-enumeration); RSVP is per guest with a server-enforced deadline; gifts are
-goals with optional quotas — progress is always computed from the
-contribution ledger, the last quota is protected by a row lock, and the PIX
-copia-e-cola (hand-rolled EMV/CRC16 codec, golden-tested) carries the amount;
-messages are publicly write-only; the guest list arrives only as an uploaded
-CSV/XLSX export, upserted by normalized name, never touching RSVP fields.
+Key domain rules: guests have no accounts (normalized-name lookup with a
+rate-limited prefix typeahead; group data only via exact match); RSVP is per
+guest with a server-enforced deadline, any member answers for the whole group,
+and each submission with a "yes" emails the couple via Resend (async, never
+blocking the RSVP); gifts are dual-mode — `kind=pix` metas/cotas (progress
+always computed from the ledger, last quota under a row lock, hand-rolled
+golden-tested PIX codec) or `kind=link` external store registry cards
+(Mercado Livre/Amazon/Camicado URL, no money through the API); messages are
+publicly write-only; the guest list arrives only as an uploaded CSV/XLSX
+export, upserted by normalized name, never touching RSVP fields.
 
 ## Local run
 

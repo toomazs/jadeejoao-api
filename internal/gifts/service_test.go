@@ -46,6 +46,9 @@ func (f *fakeRepo) CreateContribution(ctx context.Context, req NewContribution) 
 	if !g.Active {
 		return Contribution{}, ErrNotFound
 	}
+	if g.Kind == KindLink {
+		return Contribution{}, ErrExternalGift
+	}
 	if err := validateAmount(g.QuotaCentavos, req.AmountCentavos); err != nil {
 		return Contribution{}, err
 	}
@@ -66,6 +69,7 @@ func (f *fakeRepo) CreateContribution(ctx context.Context, req NewContribution) 
 
 func (f *fakeRepo) InsertGift(_ context.Context, p GiftParams) (uuid.UUID, error) {
 	g := Gift{ID: uuid.New(), Title: p.Title, Description: p.Description, ImageURL: p.ImageURL,
+		Kind: p.Kind, Platform: p.Platform, ExternalURL: p.ExternalURL,
 		GoalCentavos: p.GoalCentavos, QuotaCentavos: p.QuotaCentavos, MaxUnits: p.MaxUnits,
 		Active: p.Active, Sort: p.Sort}
 	f.gifts = append(f.gifts, g)
@@ -76,12 +80,23 @@ func (f *fakeRepo) UpdateGift(_ context.Context, id uuid.UUID, p GiftParams) err
 	for i := range f.gifts {
 		if f.gifts[i].ID == id {
 			f.gifts[i].Title, f.gifts[i].Description, f.gifts[i].ImageURL = p.Title, p.Description, p.ImageURL
+			f.gifts[i].Kind, f.gifts[i].Platform, f.gifts[i].ExternalURL = p.Kind, p.Platform, p.ExternalURL
 			f.gifts[i].GoalCentavos, f.gifts[i].QuotaCentavos, f.gifts[i].MaxUnits = p.GoalCentavos, p.QuotaCentavos, p.MaxUnits
 			f.gifts[i].Active, f.gifts[i].Sort = p.Active, p.Sort
 			return nil
 		}
 	}
 	return ErrNotFound
+}
+
+func (f *fakeRepo) CountContributions(_ context.Context, giftID uuid.UUID) (int64, error) {
+	var n int64
+	for _, c := range f.contribs {
+		if c.GiftID == giftID {
+			n++
+		}
+	}
+	return n, nil
 }
 
 func (f *fakeRepo) DeleteGiftIfNoContributions(_ context.Context, id uuid.UUID) (bool, error) {
@@ -141,11 +156,16 @@ func (f *fakeRepo) UpdateContributionStatus(_ context.Context, id uuid.UUID, sta
 var testIdentity = PixIdentity{Key: "casamento@jadeejoao.com.br", MerchantName: "JADE E JOAO", MerchantCity: "ATIBAIA"}
 
 func newGiftFixture() (*fakeRepo, Gift, Gift) {
-	free := Gift{ID: uuid.New(), Title: "Barba", Active: true, GoalCentavos: ptr[int64](20000), Sort: 10}
-	quota := Gift{ID: uuid.New(), Title: "Jantar", Active: true,
+	free := Gift{ID: uuid.New(), Title: "Barba", Kind: KindPix, Active: true, GoalCentavos: ptr[int64](20000), Sort: 10}
+	quota := Gift{ID: uuid.New(), Title: "Jantar", Kind: KindPix, Active: true,
 		GoalCentavos: ptr[int64](60000), QuotaCentavos: ptr[int64](15000), MaxUnits: ptr[int32](4),
 		DeclaredCentavos: 45000, Sort: 20} // 3 of 4 units consumed
 	return &fakeRepo{gifts: []Gift{free, quota}}, free, quota
+}
+
+func newLinkGift() Gift {
+	return Gift{ID: uuid.New(), Title: "Lista no Mercado Livre", Kind: KindLink, Active: true,
+		Platform: ptr("mercadolivre"), ExternalURL: ptr("https://www.mercadolivre.com.br/presentes/jadeejoao"), Sort: 30}
 }
 
 func TestValidateAmount(t *testing.T) {
@@ -258,6 +278,86 @@ func TestDeclareHappyPath(t *testing.T) {
 	}
 	if repo.inserts != 1 {
 		t.Fatalf("inserts = %d, want 1", repo.inserts)
+	}
+}
+
+func TestLinkGiftsRejectPixOperations(t *testing.T) {
+	repo, _, _ := newGiftFixture()
+	link := newLinkGift()
+	repo.gifts = append(repo.gifts, link)
+	svc := NewService(repo, testIdentity)
+	ctx := context.Background()
+
+	if _, _, err := svc.PixPreview(ctx, link.ID, ptr[int64](5000)); !errors.Is(err, ErrExternalGift) {
+		t.Fatalf("preview on link gift: got %v, want ErrExternalGift", err)
+	}
+	if _, _, err := svc.Declare(ctx, link.ID, nil, "Eduardo", ptr[int64](5000)); !errors.Is(err, ErrExternalGift) {
+		t.Fatalf("declare on link gift: got %v, want ErrExternalGift", err)
+	}
+	if repo.inserts != 0 {
+		t.Fatal("link gift must never receive contributions")
+	}
+}
+
+func TestValidateGiftParamsKinds(t *testing.T) {
+	url := "https://www.amazon.com.br/registry/jadeejoao"
+	httpURL := "http://insecure.example.com"
+	cases := []struct {
+		name string
+		p    GiftParams
+		ok   bool
+	}{
+		{"empty kind defaults to pix", GiftParams{Title: "x"}, true},
+		{"pix with money fields", GiftParams{Kind: KindPix, GoalCentavos: ptr[int64](1000)}, true},
+		{"pix with url rejected", GiftParams{Kind: KindPix, ExternalURL: &url}, false},
+		{"pix with platform rejected", GiftParams{Kind: KindPix, Platform: ptr("amazon")}, false},
+		{"link happy", GiftParams{Kind: KindLink, Platform: ptr("amazon"), ExternalURL: &url}, true},
+		{"link without url", GiftParams{Kind: KindLink, Platform: ptr("amazon")}, false},
+		{"link with http url", GiftParams{Kind: KindLink, ExternalURL: &httpURL}, false},
+		{"link with goal", GiftParams{Kind: KindLink, ExternalURL: &url, GoalCentavos: ptr[int64](1000)}, false},
+		{"link with quota", GiftParams{Kind: KindLink, ExternalURL: &url, QuotaCentavos: ptr[int64](1000)}, false},
+		{"unknown kind", GiftParams{Kind: "raffle"}, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := validateGiftParams(&tc.p)
+			if tc.ok && err != nil {
+				t.Fatalf("valid params rejected: %v", err)
+			}
+			if !tc.ok && !errors.Is(err, ErrInvalidGift) {
+				t.Fatalf("got %v, want ErrInvalidGift", err)
+			}
+		})
+	}
+	// The default is materialized so the repo persists an explicit kind.
+	p := GiftParams{Title: "x"}
+	_ = validateGiftParams(&p)
+	if p.Kind != KindPix {
+		t.Fatalf("kind not defaulted: %q", p.Kind)
+	}
+}
+
+// AD-6: kind is immutable once the gift has contributions.
+func TestUpdateGiftKindLockedByLedger(t *testing.T) {
+	repo, free, _ := newGiftFixture()
+	svc := NewService(repo, testIdentity)
+	ctx := context.Background()
+
+	if _, err := repo.CreateContribution(ctx, NewContribution{
+		GiftID: free.ID, ContributorName: "Eduardo", AmountCentavos: 5000,
+	}); err != nil {
+		t.Fatalf("seed contribution: %v", err)
+	}
+
+	url := "https://www.amazon.com.br/registry/jadeejoao"
+	_, err := svc.UpdateGift(ctx, free.ID, GiftParams{Title: "Barba", Kind: KindLink, ExternalURL: &url, Active: true})
+	if !errors.Is(err, ErrKindLocked) {
+		t.Fatalf("got %v, want ErrKindLocked", err)
+	}
+
+	// Same kind stays editable.
+	if _, err := svc.UpdateGift(ctx, free.ID, GiftParams{Title: "Barba do noivo", Kind: KindPix, GoalCentavos: ptr[int64](30000), Active: true}); err != nil {
+		t.Fatalf("same-kind update rejected: %v", err)
 	}
 }
 

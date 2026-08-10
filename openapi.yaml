@@ -377,6 +377,11 @@ components:
         description:
           maxLength: 2000
           type: string
+        external_url:
+          description: https URL of the couple's registry (link gifts only).
+          format: uri
+          maxLength: 2000
+          type: string
         goal_centavos:
           format: int64
           maximum: 10000000000
@@ -385,11 +390,23 @@ components:
         image_url:
           format: uri
           type: string
+        kind:
+          description: "Defaults to pix. pix: metas/cotas. link: external registry card (requires external_url, forbids money fields)."
+          enum:
+            - pix
+            - link
+          type: string
         max_units:
           description: Requires quota_centavos.
           format: int32
           minimum: 1
           type: integer
+        platform:
+          description: Store slug for link gifts (mercadolivre, amazon, camicado, …).
+          examples:
+            - mercadolivre
+          maxLength: 40
+          type: string
         quota_centavos:
           format: int64
           maximum: 10000000000
@@ -418,31 +435,46 @@ components:
           readOnly: true
           type: string
         confirmed_centavos:
-          description: Sum of admin-confirmed contributions.
+          description: Sum of admin-confirmed contributions. Always 0 for link gifts.
           format: int64
           type: integer
         declared_centavos:
-          description: Sum of declared (not yet confirmed) contributions.
+          description: Sum of declared (not yet confirmed) contributions. Always 0 for link gifts.
           format: int64
           type: integer
         description:
+          type: string
+        external_url:
+          description: The couple's registry URL (link gifts only).
+          format: uri
           type: string
         gift_id:
           format: uuid
           type: string
         goal_centavos:
-          description: Goal amount in centavos (BRL).
+          description: Goal amount in centavos (BRL). PIX gifts only.
           format: int64
           type: integer
         image_url:
           format: uri
           type: string
+        kind:
+          description: "pix: metas/cotas paid by PIX through the site. link: external store registry — the card redirects and no money flows through the API."
+          enum:
+            - pix
+            - link
+          type: string
         max_units:
-          description: Maximum sellable quota units; null means unlimited.
+          description: Maximum sellable quota units; null means unlimited. PIX gifts only.
           format: int32
           type: integer
+        platform:
+          description: Store slug for link gifts; the SPAs map it to a local logo asset.
+          examples:
+            - mercadolivre
+          type: string
         quota_centavos:
-          description: Fixed quota unit in centavos; contributions must be multiples. Null means free amount.
+          description: Fixed quota unit in centavos; contributions must be multiples. Null means free amount. PIX gifts only.
           format: int64
           type: integer
         sort:
@@ -453,12 +485,13 @@ components:
             - Para o João fazer a barba
           type: string
         units_left:
-          description: "Remaining quota units (only for unit-limited gifts). Optimistic: declared + confirmed consume units."
+          description: "Remaining quota units (only for unit-limited PIX gifts). Optimistic: declared + confirmed consume units."
           format: int64
           type: integer
       required:
         - gift_id
         - title
+        - kind
         - declared_centavos
         - confirmed_centavos
         - sort
@@ -1233,6 +1266,26 @@ components:
       required:
         - title
       type: object
+    SuggestOutputBody:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - https://example.com/schemas/SuggestOutputBody.json
+          format: uri
+          readOnly: true
+          type: string
+        suggestions:
+          description: Up to 8 full names. Pick one and confirm it via POST /guests/lookup.
+          items:
+            type: string
+          type:
+            - array
+            - "null"
+      required:
+        - suggestions
+      type: object
   securitySchemes:
     supabaseJWT:
       bearerFormat: JWT
@@ -1888,6 +1941,39 @@ paths:
                 $ref: "#/components/schemas/ErrorModel"
           description: Error
       summary: Find your invitation
+      tags:
+        - guests
+  /api/v1/guests/suggest:
+    get:
+      description: "Prefix typeahead for the RSVP name field: up to 8 full names, accent- and case-insensitive, rate-limited, debounced client-side. Returns names only — group data still requires the exact lookup."
+      operationId: suggest-guest-names
+      parameters:
+        - description: Beginning of the guest's name; matching ignores case and accents.
+          explode: false
+          in: query
+          name: q
+          required: true
+          schema:
+            description: Beginning of the guest's name; matching ignores case and accents.
+            examples:
+              - edu
+            maxLength: 100
+            minLength: 3
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuggestOutputBody"
+          description: OK
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Suggest guest names
       tags:
         - guests
   /api/v1/guests/{group_id}/rsvp:

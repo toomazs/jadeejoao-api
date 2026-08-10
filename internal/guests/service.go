@@ -6,6 +6,8 @@ import (
 	"encoding/csv"
 	"errors"
 	"fmt"
+	"html"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -54,6 +56,7 @@ type Repo interface {
 	GetGroup(ctx context.Context, id uuid.UUID) (Group, error)
 	ListMembers(ctx context.Context, groupID uuid.UUID) ([]Member, error)
 	UpdateAttendances(ctx context.Context, groupID uuid.UUID, updates []AttendanceUpdate) error
+	SuggestNames(ctx context.Context, normalizedPrefix string) ([]string, error)
 	ListAllGroups(ctx context.Context) ([]Group, error)
 	ListAllGuests(ctx context.Context) (map[uuid.UUID][]Member, error)
 }
@@ -81,20 +84,28 @@ type DeadlineSource interface {
 	RSVPDeadline(ctx context.Context) (string, error)
 }
 
-// Service implements lookup and RSVP.
-type Service struct {
-	repo     Repo
-	deadline DeadlineSource
-	now      func() time.Time
+// Mailer sends one notification email. Implemented by platform.ResendMailer;
+// nil disables notifications entirely.
+type Mailer interface {
+	Send(ctx context.Context, subject, html string) error
 }
 
-// NewService wires the guests service. now is injectable for tests; pass nil
-// for time.Now.
-func NewService(repo Repo, deadline DeadlineSource, now func() time.Time) *Service {
+// Service implements lookup, typeahead, and RSVP.
+type Service struct {
+	repo             Repo
+	deadline         DeadlineSource
+	now              func() time.Time
+	mailer           Mailer
+	notifyRetryDelay time.Duration
+}
+
+// NewService wires the guests service. now is injectable for tests (nil =
+// time.Now); mailer may be nil (notifications off).
+func NewService(repo Repo, deadline DeadlineSource, now func() time.Time, mailer Mailer) *Service {
 	if now == nil {
 		now = time.Now
 	}
-	return &Service{repo: repo, deadline: deadline, now: now}
+	return &Service{repo: repo, deadline: deadline, now: now, mailer: mailer, notifyRetryDelay: 2 * time.Second}
 }
 
 // Lookup resolves a typed full name to its guest group. Exact normalized
@@ -154,7 +165,95 @@ func (s *Service) SubmitRSVP(ctx context.Context, groupID uuid.UUID, updates []A
 	if err := s.repo.UpdateAttendances(ctx, groupID, updates); err != nil {
 		return Group{}, nil, err
 	}
-	return s.groupWithMembers(ctx, groupID)
+	group, refreshed, err := s.groupWithMembers(ctx, groupID)
+	if err != nil {
+		return Group{}, nil, err
+	}
+	s.notifyRSVP(group, refreshed, updates)
+	return group, refreshed, nil
+}
+
+// notifyRSVP emails the couple one summary — who responded and each member's
+// answer — when the submission contains at least one "yes" (AD-15;
+// all-decline groups appear only in the admin dashboard). Fire-and-forget
+// with a single retry: it runs detached from the request and any failure is
+// only logged — guests never wait on, or hear about, email delivery.
+func (s *Service) notifyRSVP(group Group, members []Member, updates []AttendanceUpdate) {
+	if s.mailer == nil {
+		return
+	}
+	anyYes := false
+	for _, u := range updates {
+		if u.Attending == "yes" {
+			anyYes = true
+			break
+		}
+	}
+	if !anyYes {
+		return
+	}
+	subject, body := buildRSVPEmail(group, members)
+	retryDelay := s.notifyRetryDelay
+	go func() {
+		send := func() error {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			return s.mailer.Send(ctx, subject, body)
+		}
+		err := send()
+		if err != nil {
+			time.Sleep(retryDelay)
+			err = send()
+		}
+		if err != nil {
+			slog.Error("rsvp notification failed after retry", "group", group.Label, "error", err)
+		}
+	}()
+}
+
+// buildRSVPEmail renders the PT-BR notification listing every member's answer.
+func buildRSVPEmail(group Group, members []Member) (subject, body string) {
+	yes, no := 0, 0
+	var items strings.Builder
+	for _, m := range members {
+		var answer string
+		switch m.Attending {
+		case "yes":
+			yes++
+			answer = "✅ vai"
+		case "no":
+			no++
+			answer = "❌ não vai"
+		default:
+			answer = "⏳ ainda não respondeu"
+		}
+		items.WriteString(fmt.Sprintf("<li><strong>%s</strong> — %s</li>", html.EscapeString(m.FullName), answer))
+	}
+	subject = fmt.Sprintf("Confirmação de presença: %s", group.Label)
+	body = fmt.Sprintf(
+		"<h2>%s respondeu ao convite! 🎉</h2><ul>%s</ul><p>Resumo do grupo: %d sim, %d não.</p>",
+		html.EscapeString(group.Label), items.String(), yes, no,
+	)
+	return subject, body
+}
+
+// SuggestNames returns up to 8 full names whose normalized form starts with
+// the typed prefix (min 3 normalized chars). Names only — group data still
+// requires the exact-match lookup (AD-5, amended 2026-08-10: the owner
+// accepts the name-visibility tradeoff for typeahead UX).
+func (s *Service) SuggestNames(ctx context.Context, query string) ([]string, error) {
+	normalized := Normalize(query)
+	if len([]rune(normalized)) < 3 {
+		return []string{}, nil
+	}
+	names, err := s.repo.SuggestNames(ctx, normalized)
+	if err != nil {
+		return nil, err
+	}
+	if names == nil {
+		names = []string{}
+	}
+	return names, nil
 }
 
 // AdminDashboard returns every group with members plus aggregate headcounts.

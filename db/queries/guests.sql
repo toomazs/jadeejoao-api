@@ -19,6 +19,13 @@ update guests
 set attending = $3, responded_at = now(), updated_at = now()
 where id = $1 and group_id = $2;
 
+-- name: SuggestGuestNames :many
+select full_name
+from guests
+where normalized_name like @prefix::text || '%'
+order by full_name
+limit 8;
+
 -- name: ListAllGroups :many
 select id, label
 from guest_groups

@@ -12,6 +12,19 @@ import (
 	"github.com/google/uuid"
 )
 
+const countGiftContributions = `-- name: CountGiftContributions :one
+select count(*)
+from contributions
+where gift_id = $1
+`
+
+func (q *Queries) CountGiftContributions(ctx context.Context, giftID uuid.UUID) (int64, error) {
+	row := q.db.QueryRow(ctx, countGiftContributions, giftID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const deactivateGift = `-- name: DeactivateGift :execrows
 update gifts
 set active = false
@@ -63,7 +76,7 @@ func (q *Queries) GetContribution(ctx context.Context, id uuid.UUID) (Contributi
 }
 
 const getGiftForUpdate = `-- name: GetGiftForUpdate :one
-select id, quota_centavos, max_units, active
+select id, kind, quota_centavos, max_units, active
 from gifts
 where id = $1
 for update
@@ -71,6 +84,7 @@ for update
 
 type GetGiftForUpdateRow struct {
 	ID            uuid.UUID
+	Kind          string
 	QuotaCentavos *int64
 	MaxUnits      *int32
 	Active        bool
@@ -81,6 +95,7 @@ func (q *Queries) GetGiftForUpdate(ctx context.Context, id uuid.UUID) (GetGiftFo
 	var i GetGiftForUpdateRow
 	err := row.Scan(
 		&i.ID,
+		&i.Kind,
 		&i.QuotaCentavos,
 		&i.MaxUnits,
 		&i.Active,
@@ -89,8 +104,8 @@ func (q *Queries) GetGiftForUpdate(ctx context.Context, id uuid.UUID) (GetGiftFo
 }
 
 const getGiftWithProgress = `-- name: GetGiftWithProgress :one
-select g.id, g.title, g.description, g.image_url, g.goal_centavos, g.quota_centavos,
-       g.max_units, g.active, g.sort,
+select g.id, g.title, g.description, g.image_url, g.kind, g.platform, g.external_url,
+       g.goal_centavos, g.quota_centavos, g.max_units, g.active, g.sort,
        coalesce(sum(c.amount_centavos) filter (where c.status = 'declared'), 0)::bigint  as declared_centavos,
        coalesce(sum(c.amount_centavos) filter (where c.status = 'confirmed'), 0)::bigint as confirmed_centavos
 from gifts g
@@ -104,6 +119,9 @@ type GetGiftWithProgressRow struct {
 	Title             string
 	Description       string
 	ImageUrl          *string
+	Kind              string
+	Platform          *string
+	ExternalUrl       *string
 	GoalCentavos      *int64
 	QuotaCentavos     *int64
 	MaxUnits          *int32
@@ -121,6 +139,9 @@ func (q *Queries) GetGiftWithProgress(ctx context.Context, id uuid.UUID) (GetGif
 		&i.Title,
 		&i.Description,
 		&i.ImageUrl,
+		&i.Kind,
+		&i.Platform,
+		&i.ExternalUrl,
 		&i.GoalCentavos,
 		&i.QuotaCentavos,
 		&i.MaxUnits,
@@ -167,8 +188,9 @@ func (q *Queries) InsertContribution(ctx context.Context, arg InsertContribution
 }
 
 const insertGift = `-- name: InsertGift :one
-insert into gifts (title, description, image_url, goal_centavos, quota_centavos, max_units, active, sort)
-values ($1, $2, $3, $4, $5, $6, $7, $8)
+insert into gifts (title, description, image_url, kind, platform, external_url,
+                   goal_centavos, quota_centavos, max_units, active, sort)
+values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 returning id
 `
 
@@ -176,6 +198,9 @@ type InsertGiftParams struct {
 	Title         string
 	Description   string
 	ImageUrl      *string
+	Kind          string
+	Platform      *string
+	ExternalUrl   *string
 	GoalCentavos  *int64
 	QuotaCentavos *int64
 	MaxUnits      *int32
@@ -188,6 +213,9 @@ func (q *Queries) InsertGift(ctx context.Context, arg InsertGiftParams) (uuid.UU
 		arg.Title,
 		arg.Description,
 		arg.ImageUrl,
+		arg.Kind,
+		arg.Platform,
+		arg.ExternalUrl,
 		arg.GoalCentavos,
 		arg.QuotaCentavos,
 		arg.MaxUnits,
@@ -251,8 +279,8 @@ func (q *Queries) ListContributions(ctx context.Context, statusFilter string) ([
 }
 
 const listGiftsWithProgress = `-- name: ListGiftsWithProgress :many
-select g.id, g.title, g.description, g.image_url, g.goal_centavos, g.quota_centavos,
-       g.max_units, g.active, g.sort,
+select g.id, g.title, g.description, g.image_url, g.kind, g.platform, g.external_url,
+       g.goal_centavos, g.quota_centavos, g.max_units, g.active, g.sort,
        coalesce(sum(c.amount_centavos) filter (where c.status = 'declared'), 0)::bigint  as declared_centavos,
        coalesce(sum(c.amount_centavos) filter (where c.status = 'confirmed'), 0)::bigint as confirmed_centavos
 from gifts g
@@ -267,6 +295,9 @@ type ListGiftsWithProgressRow struct {
 	Title             string
 	Description       string
 	ImageUrl          *string
+	Kind              string
+	Platform          *string
+	ExternalUrl       *string
 	GoalCentavos      *int64
 	QuotaCentavos     *int64
 	MaxUnits          *int32
@@ -290,6 +321,9 @@ func (q *Queries) ListGiftsWithProgress(ctx context.Context, onlyActive bool) ([
 			&i.Title,
 			&i.Description,
 			&i.ImageUrl,
+			&i.Kind,
+			&i.Platform,
+			&i.ExternalUrl,
 			&i.GoalCentavos,
 			&i.QuotaCentavos,
 			&i.MaxUnits,
@@ -362,8 +396,9 @@ func (q *Queries) UpdateContributionStatus(ctx context.Context, arg UpdateContri
 
 const updateGift = `-- name: UpdateGift :execrows
 update gifts
-set title = $2, description = $3, image_url = $4, goal_centavos = $5,
-    quota_centavos = $6, max_units = $7, active = $8, sort = $9
+set title = $2, description = $3, image_url = $4, kind = $5, platform = $6,
+    external_url = $7, goal_centavos = $8, quota_centavos = $9, max_units = $10,
+    active = $11, sort = $12
 where id = $1
 `
 
@@ -372,6 +407,9 @@ type UpdateGiftParams struct {
 	Title         string
 	Description   string
 	ImageUrl      *string
+	Kind          string
+	Platform      *string
+	ExternalUrl   *string
 	GoalCentavos  *int64
 	QuotaCentavos *int64
 	MaxUnits      *int32
@@ -385,6 +423,9 @@ func (q *Queries) UpdateGift(ctx context.Context, arg UpdateGiftParams) (int64, 
 		arg.Title,
 		arg.Description,
 		arg.ImageUrl,
+		arg.Kind,
+		arg.Platform,
+		arg.ExternalUrl,
 		arg.GoalCentavos,
 		arg.QuotaCentavos,
 		arg.MaxUnits,

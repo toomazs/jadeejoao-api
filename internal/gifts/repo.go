@@ -37,6 +37,7 @@ func (r *pgRepo) ListGifts(ctx context.Context, onlyActive bool) ([]Gift, error)
 	for i, row := range rows {
 		out[i] = Gift{
 			ID: row.ID, Title: row.Title, Description: row.Description, ImageURL: row.ImageUrl,
+			Kind: row.Kind, Platform: row.Platform, ExternalURL: row.ExternalUrl,
 			GoalCentavos: row.GoalCentavos, QuotaCentavos: row.QuotaCentavos, MaxUnits: row.MaxUnits,
 			Active: row.Active, Sort: row.Sort,
 			DeclaredCentavos: row.DeclaredCentavos, ConfirmedCentavos: row.ConfirmedCentavos,
@@ -55,6 +56,7 @@ func (r *pgRepo) GetGift(ctx context.Context, id uuid.UUID) (Gift, error) {
 	}
 	return Gift{
 		ID: row.ID, Title: row.Title, Description: row.Description, ImageURL: row.ImageUrl,
+		Kind: row.Kind, Platform: row.Platform, ExternalURL: row.ExternalUrl,
 		GoalCentavos: row.GoalCentavos, QuotaCentavos: row.QuotaCentavos, MaxUnits: row.MaxUnits,
 		Active: row.Active, Sort: row.Sort,
 		DeclaredCentavos: row.DeclaredCentavos, ConfirmedCentavos: row.ConfirmedCentavos,
@@ -83,6 +85,9 @@ func (r *pgRepo) CreateContribution(ctx context.Context, req NewContribution) (C
 	}
 	if !gift.Active {
 		return Contribution{}, ErrNotFound
+	}
+	if gift.Kind == KindLink {
+		return Contribution{}, ErrExternalGift
 	}
 	if err := validateAmount(gift.QuotaCentavos, req.AmountCentavos); err != nil {
 		return Contribution{}, err
@@ -122,6 +127,7 @@ func (r *pgRepo) CreateContribution(ctx context.Context, req NewContribution) (C
 func (r *pgRepo) InsertGift(ctx context.Context, p GiftParams) (uuid.UUID, error) {
 	return r.q.InsertGift(ctx, giftsdb.InsertGiftParams{
 		Title: p.Title, Description: p.Description, ImageUrl: p.ImageURL,
+		Kind: p.Kind, Platform: p.Platform, ExternalUrl: p.ExternalURL,
 		GoalCentavos: p.GoalCentavos, QuotaCentavos: p.QuotaCentavos, MaxUnits: p.MaxUnits,
 		Active: p.Active, Sort: p.Sort,
 	})
@@ -130,6 +136,7 @@ func (r *pgRepo) InsertGift(ctx context.Context, p GiftParams) (uuid.UUID, error
 func (r *pgRepo) UpdateGift(ctx context.Context, id uuid.UUID, p GiftParams) error {
 	affected, err := r.q.UpdateGift(ctx, giftsdb.UpdateGiftParams{
 		ID: id, Title: p.Title, Description: p.Description, ImageUrl: p.ImageURL,
+		Kind: p.Kind, Platform: p.Platform, ExternalUrl: p.ExternalURL,
 		GoalCentavos: p.GoalCentavos, QuotaCentavos: p.QuotaCentavos, MaxUnits: p.MaxUnits,
 		Active: p.Active, Sort: p.Sort,
 	})
@@ -140,6 +147,10 @@ func (r *pgRepo) UpdateGift(ctx context.Context, id uuid.UUID, p GiftParams) err
 		return ErrNotFound
 	}
 	return nil
+}
+
+func (r *pgRepo) CountContributions(ctx context.Context, giftID uuid.UUID) (int64, error) {
+	return r.q.CountGiftContributions(ctx, giftID)
 }
 
 func (r *pgRepo) DeleteGiftIfNoContributions(ctx context.Context, id uuid.UUID) (bool, error) {

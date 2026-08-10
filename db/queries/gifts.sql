@@ -1,6 +1,6 @@
 -- name: ListGiftsWithProgress :many
-select g.id, g.title, g.description, g.image_url, g.goal_centavos, g.quota_centavos,
-       g.max_units, g.active, g.sort,
+select g.id, g.title, g.description, g.image_url, g.kind, g.platform, g.external_url,
+       g.goal_centavos, g.quota_centavos, g.max_units, g.active, g.sort,
        coalesce(sum(c.amount_centavos) filter (where c.status = 'declared'), 0)::bigint  as declared_centavos,
        coalesce(sum(c.amount_centavos) filter (where c.status = 'confirmed'), 0)::bigint as confirmed_centavos
 from gifts g
@@ -10,8 +10,8 @@ group by g.id
 order by g.sort, g.created_at;
 
 -- name: GetGiftWithProgress :one
-select g.id, g.title, g.description, g.image_url, g.goal_centavos, g.quota_centavos,
-       g.max_units, g.active, g.sort,
+select g.id, g.title, g.description, g.image_url, g.kind, g.platform, g.external_url,
+       g.goal_centavos, g.quota_centavos, g.max_units, g.active, g.sort,
        coalesce(sum(c.amount_centavos) filter (where c.status = 'declared'), 0)::bigint  as declared_centavos,
        coalesce(sum(c.amount_centavos) filter (where c.status = 'confirmed'), 0)::bigint as confirmed_centavos
 from gifts g
@@ -20,7 +20,7 @@ where g.id = $1
 group by g.id;
 
 -- name: GetGiftForUpdate :one
-select id, quota_centavos, max_units, active
+select id, kind, quota_centavos, max_units, active
 from gifts
 where id = $1
 for update;
@@ -36,15 +36,22 @@ values ($1, $2, $3, $4)
 returning id, gift_id, group_id, contributor_name, amount_centavos, status, created_at, confirmed_at;
 
 -- name: InsertGift :one
-insert into gifts (title, description, image_url, goal_centavos, quota_centavos, max_units, active, sort)
-values ($1, $2, $3, $4, $5, $6, $7, $8)
+insert into gifts (title, description, image_url, kind, platform, external_url,
+                   goal_centavos, quota_centavos, max_units, active, sort)
+values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 returning id;
 
 -- name: UpdateGift :execrows
 update gifts
-set title = $2, description = $3, image_url = $4, goal_centavos = $5,
-    quota_centavos = $6, max_units = $7, active = $8, sort = $9
+set title = $2, description = $3, image_url = $4, kind = $5, platform = $6,
+    external_url = $7, goal_centavos = $8, quota_centavos = $9, max_units = $10,
+    active = $11, sort = $12
 where id = $1;
+
+-- name: CountGiftContributions :one
+select count(*)
+from contributions
+where gift_id = $1;
 
 -- name: DeleteGiftIfNoContributions :execrows
 delete from gifts

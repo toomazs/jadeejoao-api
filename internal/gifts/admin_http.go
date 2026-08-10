@@ -16,6 +16,9 @@ type GiftParamsBody struct {
 	Title         string  `json:"title" minLength:"1" maxLength:"200"`
 	Description   string  `json:"description,omitempty" maxLength:"2000"`
 	ImageURL      *string `json:"image_url,omitempty" format:"uri"`
+	Kind          string  `json:"kind,omitempty" enum:"pix,link" doc:"Defaults to pix. pix: metas/cotas. link: external registry card (requires external_url, forbids money fields)."`
+	Platform      *string `json:"platform,omitempty" maxLength:"40" example:"mercadolivre" doc:"Store slug for link gifts (mercadolivre, amazon, camicado, …)."`
+	ExternalURL   *string `json:"external_url,omitempty" format:"uri" maxLength:"2000" doc:"https URL of the couple's registry (link gifts only)."`
 	GoalCentavos  *int64  `json:"goal_centavos,omitempty" minimum:"1" maximum:"10000000000"`
 	QuotaCentavos *int64  `json:"quota_centavos,omitempty" minimum:"1" maximum:"10000000000"`
 	MaxUnits      *int32  `json:"max_units,omitempty" minimum:"1" doc:"Requires quota_centavos."`
@@ -248,7 +251,9 @@ func mapAdminGiftErr(err error) error {
 	case errors.Is(err, ErrNotFound):
 		return huma.Error404NotFound("Presente não encontrado.")
 	case errors.Is(err, ErrInvalidGift):
-		return huma.Error422UnprocessableEntity("Configuração inválida: max_units exige quota_centavos.")
+		return huma.Error422UnprocessableEntity("Configuração inválida: presentes PIX não levam link/plataforma (e max_units exige quota_centavos); presentes de lista externa exigem external_url https e não levam meta, cota ou max_units.")
+	case errors.Is(err, ErrKindLocked):
+		return huma.Error422UnprocessableEntity("O tipo deste presente não pode mudar: ele já recebeu contribuições. Desative-o e crie outro.")
 	default:
 		slog.Error("admin gift request failed", "error", err)
 		return huma.Error500InternalServerError("erro ao salvar o presente")

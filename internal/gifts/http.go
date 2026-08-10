@@ -12,18 +12,23 @@ import (
 	"github.com/jadeejoao/jadeejoao-api/internal/platform"
 )
 
-// GiftView is one gift with computed progress, as the public site renders it.
+// GiftView is one gift as the public site renders it: a PIX meta/cota card
+// (kind=pix, with computed progress) or an external registry card (kind=link,
+// the SPA opens external_url with target=_blank).
 type GiftView struct {
 	GiftID            string  `json:"gift_id" format:"uuid"`
 	Title             string  `json:"title" example:"Para o João fazer a barba"`
 	Description       string  `json:"description,omitempty"`
 	ImageURL          *string `json:"image_url,omitempty" format:"uri"`
-	GoalCentavos      *int64  `json:"goal_centavos,omitempty" doc:"Goal amount in centavos (BRL)."`
-	QuotaCentavos     *int64  `json:"quota_centavos,omitempty" doc:"Fixed quota unit in centavos; contributions must be multiples. Null means free amount."`
-	MaxUnits          *int32  `json:"max_units,omitempty" doc:"Maximum sellable quota units; null means unlimited."`
-	UnitsLeft         *int64  `json:"units_left,omitempty" doc:"Remaining quota units (only for unit-limited gifts). Optimistic: declared + confirmed consume units."`
-	DeclaredCentavos  int64   `json:"declared_centavos" doc:"Sum of declared (not yet confirmed) contributions."`
-	ConfirmedCentavos int64   `json:"confirmed_centavos" doc:"Sum of admin-confirmed contributions."`
+	Kind              string  `json:"kind" enum:"pix,link" doc:"pix: metas/cotas paid by PIX through the site. link: external store registry — the card redirects and no money flows through the API."`
+	Platform          *string `json:"platform,omitempty" example:"mercadolivre" doc:"Store slug for link gifts; the SPAs map it to a local logo asset."`
+	ExternalURL       *string `json:"external_url,omitempty" format:"uri" doc:"The couple's registry URL (link gifts only)."`
+	GoalCentavos      *int64  `json:"goal_centavos,omitempty" doc:"Goal amount in centavos (BRL). PIX gifts only."`
+	QuotaCentavos     *int64  `json:"quota_centavos,omitempty" doc:"Fixed quota unit in centavos; contributions must be multiples. Null means free amount. PIX gifts only."`
+	MaxUnits          *int32  `json:"max_units,omitempty" doc:"Maximum sellable quota units; null means unlimited. PIX gifts only."`
+	UnitsLeft         *int64  `json:"units_left,omitempty" doc:"Remaining quota units (only for unit-limited PIX gifts). Optimistic: declared + confirmed consume units."`
+	DeclaredCentavos  int64   `json:"declared_centavos" doc:"Sum of declared (not yet confirmed) contributions. Always 0 for link gifts."`
+	ConfirmedCentavos int64   `json:"confirmed_centavos" doc:"Sum of admin-confirmed contributions. Always 0 for link gifts."`
 	Sort              int32   `json:"sort"`
 }
 
@@ -163,6 +168,9 @@ func giftView(g Gift) GiftView {
 		Title:             g.Title,
 		Description:       g.Description,
 		ImageURL:          g.ImageURL,
+		Kind:              g.Kind,
+		Platform:          g.Platform,
+		ExternalURL:       g.ExternalURL,
 		GoalCentavos:      g.GoalCentavos,
 		QuotaCentavos:     g.QuotaCentavos,
 		MaxUnits:          g.MaxUnits,
@@ -183,6 +191,8 @@ func mapGiftErr(err error) error {
 		return huma.Error409Conflict("As cotas deste presente já foram todas reservadas. Escolha outro presente ou fale com os noivos.")
 	case errors.Is(err, ErrUnknownGroup):
 		return huma.Error422UnprocessableEntity("Grupo de convidados inválido. Refaça a busca pelo seu nome e tente novamente.")
+	case errors.Is(err, ErrExternalGift):
+		return huma.Error422UnprocessableEntity("Este presente é uma lista externa: reserve direto na loja pelo link do card.")
 	default:
 		slog.Error("gift request failed", "error", err)
 		return huma.Error500InternalServerError("Não conseguimos processar seu pedido agora. Tente novamente em instantes.")

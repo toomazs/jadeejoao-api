@@ -54,8 +54,37 @@ type RSVPInput struct {
 	}
 }
 
-// RegisterPublic mounts lookup and RSVP.
+// SuggestInput is the typeahead query (AD-5, amended 2026-08-10).
+type SuggestInput struct {
+	Q string `query:"q" required:"true" minLength:"3" maxLength:"100" example:"edu" doc:"Beginning of the guest's name; matching ignores case and accents."`
+}
+
+// SuggestOutput lists matching guest names (names only, max 8).
+type SuggestOutput struct {
+	Body struct {
+		Suggestions []string `json:"suggestions" doc:"Up to 8 full names. Pick one and confirm it via POST /guests/lookup."`
+	}
+}
+
+// RegisterPublic mounts suggest, lookup, and RSVP.
 func RegisterPublic(api huma.API, svc *Service) {
+	huma.Register(api, huma.Operation{
+		OperationID: "suggest-guest-names",
+		Method:      http.MethodGet,
+		Path:        platform.APIBase + "/guests/suggest",
+		Summary:     "Suggest guest names",
+		Description: "Prefix typeahead for the RSVP name field: up to 8 full names, accent- and case-insensitive, rate-limited, debounced client-side. Returns names only — group data still requires the exact lookup.",
+		Tags:        []string{"guests"},
+	}, func(ctx context.Context, in *SuggestInput) (*SuggestOutput, error) {
+		names, err := svc.SuggestNames(ctx, in.Q)
+		if err != nil {
+			return nil, mapGuestErr(err)
+		}
+		out := &SuggestOutput{}
+		out.Body.Suggestions = names
+		return out, nil
+	})
+
 	huma.Register(api, huma.Operation{
 		OperationID: "lookup-guest",
 		Method:      http.MethodPost,

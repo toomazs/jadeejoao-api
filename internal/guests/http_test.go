@@ -12,7 +12,7 @@ import (
 func newTestAPI(t *testing.T, repo *fakeRepo, deadline string) humatest.TestAPI {
 	t.Helper()
 	_, api := humatest.New(t)
-	RegisterPublic(api, NewService(repo, fixedDeadline(deadline), at("2027-01-01 10:00")))
+	RegisterPublic(api, NewService(repo, fixedDeadline(deadline), at("2027-01-01 10:00"), nil))
 	return api
 }
 
@@ -78,11 +78,36 @@ func TestRSVPEndpoint(t *testing.T) {
 	}
 }
 
+func TestSuggestEndpoint(t *testing.T) {
+	repo, _, _ := newFixture()
+	api := newTestAPI(t, repo, "2027-07-07")
+
+	resp := api.Get("/api/v1/guests/suggest?q=edu")
+	if resp.Code != http.StatusOK {
+		t.Fatalf("suggest = %d: %s", resp.Code, resp.Body.String())
+	}
+	if !strings.Contains(resp.Body.String(), "Eduardo Silva") {
+		t.Fatalf("suggestion missing: %s", resp.Body.String())
+	}
+
+	// Schema enforces the 3-char minimum.
+	resp = api.Get("/api/v1/guests/suggest?q=ed")
+	if resp.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("short q = %d, want 422", resp.Code)
+	}
+
+	// Miss: 200 with an empty list — never a 404, never group data.
+	resp = api.Get("/api/v1/guests/suggest?q=zzz")
+	if resp.Code != http.StatusOK || !strings.Contains(resp.Body.String(), `"suggestions":[]`) {
+		t.Fatalf("miss = %d: %s", resp.Code, resp.Body.String())
+	}
+}
+
 func TestRSVPDeadlineEndpoint(t *testing.T) {
 	repo, m1, m2 := newFixture()
 	_, api := humatest.New(t)
 	// Fixed clock after the deadline.
-	RegisterPublic(api, NewService(repo, fixedDeadline("2027-07-07"), at("2027-07-08 08:00")))
+	RegisterPublic(api, NewService(repo, fixedDeadline("2027-07-07"), at("2027-07-08 08:00"), nil))
 
 	resp := api.Post(fmt.Sprintf("/api/v1/guests/%s/rsvp", repo.group.ID), map[string]any{"responses": []map[string]any{
 		{"guest_id": m1.String(), "attending": "yes"},

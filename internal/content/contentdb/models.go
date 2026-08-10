@@ -32,6 +32,9 @@ type Gift struct {
 	Active        bool
 	Sort          int32
 	CreatedAt     time.Time
+	Kind          string
+	Platform      *string
+	ExternalUrl   *string
 }
 
 type Guest struct {

@@ -58,6 +58,10 @@ func (r *pgRepo) ListMembers(ctx context.Context, groupID uuid.UUID) ([]Member, 
 	return out, nil
 }
 
+func (r *pgRepo) SuggestNames(ctx context.Context, normalizedPrefix string) ([]string, error) {
+	return r.q.SuggestGuestNames(ctx, normalizedPrefix)
+}
+
 func (r *pgRepo) ListAllGroups(ctx context.Context) ([]Group, error) {
 	rows, err := r.q.ListAllGroups(ctx)
 	if err != nil {

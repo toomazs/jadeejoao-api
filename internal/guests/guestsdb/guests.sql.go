@@ -172,6 +172,34 @@ func (q *Queries) ListGroupMembers(ctx context.Context, groupID uuid.UUID) ([]Li
 	return items, nil
 }
 
+const suggestGuestNames = `-- name: SuggestGuestNames :many
+select full_name
+from guests
+where normalized_name like $1::text || '%'
+order by full_name
+limit 8
+`
+
+func (q *Queries) SuggestGuestNames(ctx context.Context, prefix string) ([]string, error) {
+	rows, err := q.db.Query(ctx, suggestGuestNames, prefix)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var full_name string
+		if err := rows.Scan(&full_name); err != nil {
+			return nil, err
+		}
+		items = append(items, full_name)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const updateGuestAttendance = `-- name: UpdateGuestAttendance :execrows
 update guests
 set attending = $3, responded_at = now(), updated_at = now()

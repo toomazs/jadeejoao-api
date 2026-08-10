@@ -62,11 +62,17 @@ func run() error {
 		return err
 	}
 
+	var mailer guests.Mailer
+	if cfg.ResendAPIKey != "" && len(cfg.NotifyEmails) > 0 {
+		mailer = platform.NewResendMailer(cfg.ResendAPIKey, cfg.NotifyFrom, cfg.NotifyEmails)
+		slog.Info("rsvp notifications enabled", "recipients", len(cfg.NotifyEmails))
+	}
+
 	contentSvc := content.NewService(content.NewRepo(pool))
 	deps := server.Deps{
 		Pool:    pool,
 		Content: contentSvc,
-		Guests:  guests.NewService(guests.NewRepo(pool), contentSvc, nil),
+		Guests:  guests.NewService(guests.NewRepo(pool), contentSvc, nil, mailer),
 		Gifts: gifts.NewService(gifts.NewRepo(pool), gifts.PixIdentity{
 			Key:          cfg.PIXKey,
 			MerchantName: cfg.PIXMerchantName,

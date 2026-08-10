@@ -20,7 +20,7 @@ func TestAdminDashboardAndExport(t *testing.T) {
 	repo.members[1].Attending = "yes"
 
 	_, api := humatest.New(t)
-	RegisterAdmin(api, NewService(repo, fixedDeadline(""), nil))
+	RegisterAdmin(api, NewService(repo, fixedDeadline(""), nil, nil))
 
 	resp := api.Get("/guests")
 	if resp.Code != http.StatusOK {

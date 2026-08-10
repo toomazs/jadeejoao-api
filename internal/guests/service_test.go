@@ -3,6 +3,7 @@ package guests
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -50,6 +51,16 @@ func (f *fakeRepo) UpdateAttendances(_ context.Context, _ uuid.UUID, updates []A
 	return nil
 }
 
+func (f *fakeRepo) SuggestNames(_ context.Context, normalizedPrefix string) ([]string, error) {
+	var out []string
+	for _, m := range f.members {
+		if len(out) < 8 && strings.HasPrefix(Normalize(m.FullName), normalizedPrefix) {
+			out = append(out, m.FullName)
+		}
+	}
+	return out, nil
+}
+
 func (f *fakeRepo) ListAllGroups(_ context.Context) ([]Group, error) {
 	return []Group{f.group}, nil
 }
@@ -86,7 +97,7 @@ func at(day string) func() time.Time {
 
 func TestLookupNormalizesInput(t *testing.T) {
 	repo, _, _ := newFixture()
-	svc := NewService(repo, fixedDeadline("2027-07-07"), nil)
+	svc := NewService(repo, fixedDeadline("2027-07-07"), nil, nil)
 
 	group, members, err := svc.Lookup(context.Background(), "  EDUARDO   sílva ")
 	if err != nil {
@@ -99,7 +110,7 @@ func TestLookupNormalizesInput(t *testing.T) {
 
 func TestLookupMissAndEmpty(t *testing.T) {
 	repo, _, _ := newFixture()
-	svc := NewService(repo, fixedDeadline(""), nil)
+	svc := NewService(repo, fixedDeadline(""), nil, nil)
 
 	if _, _, err := svc.Lookup(context.Background(), "Fulano Inexistente"); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("miss: got %v, want ErrNotFound", err)
@@ -112,7 +123,7 @@ func TestLookupMissAndEmpty(t *testing.T) {
 func TestSubmitRSVPHappyAndIdempotent(t *testing.T) {
 	repo, m1, m2 := newFixture()
 	// On the deadline day itself: still allowed (inclusive).
-	svc := NewService(repo, fixedDeadline("2027-07-07"), at("2027-07-07 23:30"))
+	svc := NewService(repo, fixedDeadline("2027-07-07"), at("2027-07-07 23:30"), nil)
 
 	_, members, err := svc.SubmitRSVP(context.Background(), repo.group.ID, []AttendanceUpdate{
 		{GuestID: m1, Attending: "yes"}, {GuestID: m2, Attending: "no"},
@@ -138,7 +149,7 @@ func TestSubmitRSVPHappyAndIdempotent(t *testing.T) {
 
 func TestSubmitRSVPDeadlineEnforced(t *testing.T) {
 	repo, m1, m2 := newFixture()
-	svc := NewService(repo, fixedDeadline("2027-07-07"), at("2027-07-08 00:10"))
+	svc := NewService(repo, fixedDeadline("2027-07-07"), at("2027-07-08 00:10"), nil)
 
 	_, _, err := svc.SubmitRSVP(context.Background(), repo.group.ID, []AttendanceUpdate{
 		{GuestID: m1, Attending: "yes"}, {GuestID: m2, Attending: "yes"},
@@ -153,7 +164,7 @@ func TestSubmitRSVPDeadlineEnforced(t *testing.T) {
 
 func TestSubmitRSVPEmptyDeadlineAlwaysOpen(t *testing.T) {
 	repo, m1, m2 := newFixture()
-	svc := NewService(repo, fixedDeadline(""), at("2030-01-01 12:00"))
+	svc := NewService(repo, fixedDeadline(""), at("2030-01-01 12:00"), nil)
 
 	if _, _, err := svc.SubmitRSVP(context.Background(), repo.group.ID, []AttendanceUpdate{
 		{GuestID: m1, Attending: "yes"}, {GuestID: m2, Attending: "no"},
@@ -164,7 +175,7 @@ func TestSubmitRSVPEmptyDeadlineAlwaysOpen(t *testing.T) {
 
 func TestSubmitRSVPRejectsInvalidAnswers(t *testing.T) {
 	repo, m1, m2 := newFixture()
-	svc := NewService(repo, fixedDeadline("2027-07-07"), at("2027-01-01 10:00"))
+	svc := NewService(repo, fixedDeadline("2027-07-07"), at("2027-01-01 10:00"), nil)
 
 	for _, bad := range []string{"maybe", "pending", "", "YES"} {
 		_, _, err := svc.SubmitRSVP(context.Background(), repo.group.ID, []AttendanceUpdate{
@@ -179,9 +190,132 @@ func TestSubmitRSVPRejectsInvalidAnswers(t *testing.T) {
 	}
 }
 
+func TestSuggestNames(t *testing.T) {
+	repo, _, _ := newFixture()
+	svc := NewService(repo, fixedDeadline(""), nil, nil)
+	ctx := context.Background()
+
+	// Accent/case-insensitive prefix.
+	names, err := svc.SuggestNames(ctx, "  EDÚ")
+	if err != nil {
+		t.Fatalf("SuggestNames: %v", err)
+	}
+	if len(names) != 1 || names[0] != "Eduardo Silva" {
+		t.Fatalf("suggestions = %v", names)
+	}
+
+	// Below 3 normalized chars: empty, no repo hit needed.
+	if names, _ := svc.SuggestNames(ctx, "ed"); len(names) != 0 {
+		t.Fatalf("short query must return empty, got %v", names)
+	}
+
+	// Miss returns an empty (non-nil) slice.
+	names, err = svc.SuggestNames(ctx, "zzz")
+	if err != nil || names == nil || len(names) != 0 {
+		t.Fatalf("miss: %v %v", names, err)
+	}
+}
+
+type fakeMailer struct {
+	sent     chan [2]string
+	failures int // fail this many Sends before succeeding
+	attempts int
+}
+
+func (f *fakeMailer) Send(_ context.Context, subject, html string) error {
+	f.attempts++
+	if f.attempts <= f.failures {
+		return errors.New("smtp down")
+	}
+	f.sent <- [2]string{subject, html}
+	return nil
+}
+
+func TestSubmitRSVPNotifiesCouple(t *testing.T) {
+	repo, m1, m2 := newFixture()
+	mailer := &fakeMailer{sent: make(chan [2]string, 1)}
+	svc := NewService(repo, fixedDeadline(""), at("2027-01-01 10:00"), mailer)
+
+	if _, _, err := svc.SubmitRSVP(context.Background(), repo.group.ID, []AttendanceUpdate{
+		{GuestID: m1, Attending: "yes"}, {GuestID: m2, Attending: "no"},
+	}); err != nil {
+		t.Fatalf("SubmitRSVP: %v", err)
+	}
+
+	select {
+	case msg := <-mailer.sent:
+		subject, body := msg[0], msg[1]
+		if !strings.Contains(subject, "Eduardo e família") {
+			t.Fatalf("subject = %q", subject)
+		}
+		if !strings.Contains(body, "Eduardo Silva") || !strings.Contains(body, "✅ vai") ||
+			!strings.Contains(body, "Ana Clara Silva") || !strings.Contains(body, "❌ não vai") ||
+			!strings.Contains(body, "1 sim, 1 não") {
+			t.Fatalf("body = %q", body)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("notification never sent")
+	}
+}
+
+// AD-15: only submissions with at least one "yes" notify — all-decline
+// groups appear only in the admin dashboard.
+func TestSubmitRSVPAllNoSendsNothing(t *testing.T) {
+	repo, m1, m2 := newFixture()
+	mailer := &fakeMailer{sent: make(chan [2]string, 1)}
+	svc := NewService(repo, fixedDeadline(""), at("2027-01-01 10:00"), mailer)
+
+	if _, _, err := svc.SubmitRSVP(context.Background(), repo.group.ID, []AttendanceUpdate{
+		{GuestID: m1, Attending: "no"}, {GuestID: m2, Attending: "no"},
+	}); err != nil {
+		t.Fatalf("SubmitRSVP: %v", err)
+	}
+	select {
+	case msg := <-mailer.sent:
+		t.Fatalf("all-no submission must not email, got %v", msg)
+	case <-time.After(150 * time.Millisecond):
+	}
+	if mailer.attempts != 0 {
+		t.Fatalf("attempts = %d, want 0", mailer.attempts)
+	}
+}
+
+// AD-15: one retry on failure, then give up (logged only).
+func TestNotifyRetriesOnce(t *testing.T) {
+	repo, m1, m2 := newFixture()
+	mailer := &fakeMailer{sent: make(chan [2]string, 1), failures: 1}
+	svc := NewService(repo, fixedDeadline(""), at("2027-01-01 10:00"), mailer)
+	svc.notifyRetryDelay = 10 * time.Millisecond
+
+	if _, _, err := svc.SubmitRSVP(context.Background(), repo.group.ID, []AttendanceUpdate{
+		{GuestID: m1, Attending: "yes"}, {GuestID: m2, Attending: "yes"},
+	}); err != nil {
+		t.Fatalf("SubmitRSVP: %v", err)
+	}
+	select {
+	case <-mailer.sent:
+		if mailer.attempts != 2 {
+			t.Fatalf("attempts = %d, want 2 (fail + retry)", mailer.attempts)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("retry never delivered")
+	}
+}
+
+func TestSubmitRSVPNilMailerIsSafe(t *testing.T) {
+	repo, m1, m2 := newFixture()
+	svc := NewService(repo, fixedDeadline(""), at("2027-01-01 10:00"), nil)
+
+	if _, _, err := svc.SubmitRSVP(context.Background(), repo.group.ID, []AttendanceUpdate{
+		{GuestID: m1, Attending: "yes"}, {GuestID: m2, Attending: "no"},
+	}); err != nil {
+		t.Fatalf("nil mailer must be a no-op: %v", err)
+	}
+}
+
 func TestSubmitRSVPMemberCoverage(t *testing.T) {
 	repo, m1, m2 := newFixture()
-	svc := NewService(repo, fixedDeadline("2027-07-07"), at("2027-01-01 10:00"))
+	svc := NewService(repo, fixedDeadline("2027-07-07"), at("2027-01-01 10:00"), nil)
 	ctx := context.Background()
 
 	cases := []struct {

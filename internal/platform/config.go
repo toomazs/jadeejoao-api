@@ -26,6 +26,12 @@ type Config struct {
 	PIXMerchantName string
 	PIXMerchantCity string
 
+	// RSVP email notifications via Resend. Optional: empty API key or empty
+	// recipient list disables the feature entirely.
+	ResendAPIKey string
+	NotifyFrom   string
+	NotifyEmails []string
+
 	CORSOrigins []string
 }
 
@@ -46,6 +52,9 @@ func LoadConfig() (*Config, error) {
 		PIXKey:             os.Getenv("PIX_KEY"),
 		PIXMerchantName:    os.Getenv("PIX_MERCHANT_NAME"),
 		PIXMerchantCity:    os.Getenv("PIX_MERCHANT_CITY"),
+		ResendAPIKey:       os.Getenv("RESEND_API_KEY"),
+		NotifyFrom:         getEnv("RESEND_FROM", "Casamento Jade & João <onboarding@resend.dev>"),
+		NotifyEmails:       splitList(os.Getenv("RSVP_NOTIFY_EMAILS")),
 		CORSOrigins:        splitList(getEnv("CORS_ORIGINS", "http://localhost:5173,http://localhost:5174")),
 	}
 
