@@ -65,10 +65,7 @@ func RegisterAdmin(api huma.API, svc *Service) {
 			}
 			out.Body.Groups[i] = view
 		}
-		out.Body.Headcounts = HeadcountsView{
-			Total: counts.Total, Yes: counts.Yes, No: counts.No, Pending: counts.Pending,
-			YesByCategory: counts.YesByCategory,
-		}
+		out.Body.Headcounts = HeadcountsView(counts)
 		return out, nil
 	})
 

@@ -33,6 +33,13 @@ type Deps struct {
 	Auth     AdminAuthenticator
 }
 
+// Public POST rate limits: generous for guests retrying a lookup, hostile to
+// scripted abuse. Per IP, in-process (single replica).
+const (
+	publicPostPerMinute = 10
+	publicPostBurst     = 20
+)
+
 // NewRouter builds the production HTTP handler: middleware stack + Huma API.
 func NewRouter(cfg *platform.Config, deps Deps) http.Handler {
 	r := chi.NewRouter()
@@ -40,6 +47,7 @@ func NewRouter(cfg *platform.Config, deps Deps) http.Handler {
 	r.Use(logRequests)
 	r.Use(recoverPanics)
 	r.Use(cors(cfg.CORSOrigins))
+	r.Use(publicPostRateLimit(platform.NewRateLimiter(publicPostPerMinute, publicPostBurst)))
 	NewAPI(r, deps)
 	return r
 }

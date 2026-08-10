@@ -27,17 +27,23 @@ func newJWKSFixture(t *testing.T) (*httptest.Server, *ecdsa.PrivateKey, string) 
 		t.Fatal(err)
 	}
 	kid := "test-key-1"
+	ecdhKey, err := key.PublicKey.ECDH()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Uncompressed point: 0x04 || X (32 bytes) || Y (32 bytes).
+	point := ecdhKey.Bytes()
 	b64 := func(b []byte) string { return base64.RawURLEncoding.EncodeToString(b) }
 	jwks := map[string]any{
 		"keys": []map[string]any{{
 			"kty": "EC", "crv": "P-256", "kid": kid, "use": "sig", "alg": "ES256",
-			"x": b64(key.PublicKey.X.FillBytes(make([]byte, 32))),
-			"y": b64(key.PublicKey.Y.FillBytes(make([]byte, 32))),
+			"x": b64(point[1:33]),
+			"y": b64(point[33:65]),
 		}},
 	}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(jwks)
+		_ = json.NewEncoder(w).Encode(jwks)
 	}))
 	t.Cleanup(srv.Close)
 	return srv, key, kid

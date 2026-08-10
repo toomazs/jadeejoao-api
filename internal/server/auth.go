@@ -22,16 +22,16 @@ type AdminAuthenticator interface {
 func adminAuthMiddleware(api huma.API, auth AdminAuthenticator) func(huma.Context, func(huma.Context)) {
 	return func(ctx huma.Context, next func(huma.Context)) {
 		if auth == nil {
-			huma.WriteErr(api, ctx, http.StatusServiceUnavailable, "authentication is not configured")
+			_ = huma.WriteErr(api, ctx, http.StatusServiceUnavailable, "authentication is not configured")
 			return
 		}
 		_, err := auth.ValidateBearer(ctx.Context(), ctx.Header("Authorization"))
 		switch {
 		case errors.Is(err, platform.ErrForbidden):
-			huma.WriteErr(api, ctx, http.StatusForbidden, "Acesso restrito aos noivos.")
+			_ = huma.WriteErr(api, ctx, http.StatusForbidden, "Acesso restrito aos noivos.")
 			return
 		case err != nil:
-			huma.WriteErr(api, ctx, http.StatusUnauthorized, "Sessão inválida ou expirada. Entre novamente.")
+			_ = huma.WriteErr(api, ctx, http.StatusUnauthorized, "Sessão inválida ou expirada. Entre novamente.")
 			return
 		}
 		next(ctx)

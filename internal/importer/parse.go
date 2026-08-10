@@ -108,7 +108,7 @@ func parseXLSX(data []byte) ([]Row, error) {
 	if err != nil {
 		return nil, &ParseError{Message: fmt.Sprintf("Não foi possível abrir o XLSX: %v. %s", err, expectedHeadersHint)}
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	sheets := f.GetSheetList()
 	if len(sheets) == 0 {

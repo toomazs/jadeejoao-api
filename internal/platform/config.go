@@ -102,7 +102,7 @@ func LoadDotEnv(path string) {
 		if key == "" || os.Getenv(key) != "" {
 			continue
 		}
-		os.Setenv(key, value)
+		_ = os.Setenv(key, value)
 	}
 }
 

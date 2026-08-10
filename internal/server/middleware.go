@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/jadeejoao/jadeejoao-api/internal/platform"
 )
 
 type ctxKey string
@@ -67,7 +69,7 @@ func recoverPanics(next http.Handler) http.Handler {
 				slog.Error("panic recovered", "request_id", RequestIDFromContext(r.Context()), "panic", rec)
 				w.Header().Set("Content-Type", "application/problem+json")
 				w.WriteHeader(http.StatusInternalServerError)
-				w.Write([]byte(`{"title":"Internal Server Error","status":500}`))
+				_, _ = w.Write([]byte(`{"title":"Internal Server Error","status":500}`))
 			}
 		}()
 		next.ServeHTTP(w, r)
@@ -94,6 +96,26 @@ func cors(allowed []string) func(http.Handler) http.Handler {
 			}
 			if r.Method == http.MethodOptions {
 				w.WriteHeader(http.StatusNoContent)
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+// publicPostRateLimit guards every public POST (lookup, RSVP, contributions,
+// messages) with a per-IP token bucket. Admin routes are exempt — they are
+// JWT-guarded. 429 responses use RFC 9457 with a PT-BR detail.
+func publicPostRateLimit(limiter *platform.RateLimiter) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			limited := r.Method == http.MethodPost &&
+				strings.HasPrefix(r.URL.Path, platform.APIBase+"/") &&
+				!strings.HasPrefix(r.URL.Path, platform.APIBase+"/admin")
+			if limited && !limiter.Allow(clientIP(r)) {
+				w.Header().Set("Content-Type", "application/problem+json")
+				w.WriteHeader(http.StatusTooManyRequests)
+				_, _ = w.Write([]byte(`{"title":"Too Many Requests","status":429,"detail":"Muitas tentativas em pouco tempo. Aguarde um instante e tente de novo."}`))
 				return
 			}
 			next.ServeHTTP(w, r)

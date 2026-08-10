@@ -23,7 +23,7 @@ func main() {
 		os.Exit(1)
 	}
 	if *out == "" {
-		os.Stdout.Write(spec)
+		_, _ = os.Stdout.Write(spec)
 		return
 	}
 	if err := os.WriteFile(*out, spec, 0o644); err != nil {

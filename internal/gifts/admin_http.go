@@ -216,11 +216,7 @@ func RegisterAdmin(api huma.API, svc *Service) {
 }
 
 func giftParams(b GiftParamsBody) GiftParams {
-	return GiftParams{
-		Title: b.Title, Description: b.Description, ImageURL: b.ImageURL,
-		GoalCentavos: b.GoalCentavos, QuotaCentavos: b.QuotaCentavos, MaxUnits: b.MaxUnits,
-		Active: b.Active, Sort: b.Sort,
-	}
+	return GiftParams(b)
 }
 
 func contributionView(c Contribution, giftTitle string) ContributionView {
