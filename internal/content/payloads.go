@@ -59,13 +59,22 @@ type Lodging struct {
 	ShuttleServed bool   `json:"shuttle_served" doc:"Whether the wedding shuttle (translado) serves this lodging."`
 }
 
-// HeroPayload is the opening section: names, date, and hero image.
+// HeroMilestone is one arch of the hero's photo triptych — a moment of the
+// couple's story (met, proposal, wedding day), fully admin-editable.
+type HeroMilestone struct {
+	Label    string `json:"label" example:"O pedido" doc:"Short caption under the arch."`
+	Date     string `json:"date,omitempty" format:"date" doc:"Optional date shown above the label."`
+	ImageURL string `json:"image_url,omitempty" format:"uri" doc:"Public CDN photo; the site shows brand art while empty."`
+}
+
+// HeroPayload is the opening section: names, date, and the milestone triptych.
 type HeroPayload struct {
 	SectionBase
-	CoupleNames   string `json:"couple_names" example:"Jade & João"`
-	EventDatetime string `json:"event_datetime" format:"date-time" example:"2027-08-07T15:00:00-03:00" doc:"Ceremony start, ISO 8601 with America/Sao_Paulo offset."`
-	CityLabel     string `json:"city_label" example:"Atibaia – SP"`
-	HeroImageURL  string `json:"hero_image_url,omitempty" format:"uri"`
+	CoupleNames   string          `json:"couple_names" example:"Jade & João"`
+	EventDatetime string          `json:"event_datetime" format:"date-time" example:"2027-08-07T15:00:00-03:00" doc:"Ceremony start, ISO 8601 with America/Sao_Paulo offset."`
+	CityLabel     string          `json:"city_label" example:"Atibaia – SP"`
+	HeroImageURL  string          `json:"hero_image_url,omitempty" format:"uri"`
+	Milestones    []HeroMilestone `json:"milestones,omitempty" maxItems:"3" doc:"Up to three story arches rendered beside the names."`
 }
 
 // OurStoryPayload is the couple's story section.

@@ -653,6 +653,25 @@ components:
       required:
         - status
       type: object
+    HeroMilestone:
+      additionalProperties: false
+      properties:
+        date:
+          description: Optional date shown above the label.
+          format: date
+          type: string
+        image_url:
+          description: Public CDN photo; the site shows brand art while empty.
+          format: uri
+          type: string
+        label:
+          description: Short caption under the arch.
+          examples:
+            - O pedido
+          type: string
+      required:
+        - label
+      type: object
     HeroPayload:
       additionalProperties: false
       properties:
@@ -680,6 +699,14 @@ components:
           description: Public CDN image URLs.
           items:
             type: string
+          type:
+            - array
+            - "null"
+        milestones:
+          description: Up to three story arches rendered beside the names.
+          items:
+            $ref: "#/components/schemas/HeroMilestone"
+          maxItems: 3
           type:
             - array
             - "null"
