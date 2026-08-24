@@ -14,6 +14,7 @@ import (
 	"github.com/jadeejoao/jadeejoao-api/internal/gifts"
 	"github.com/jadeejoao/jadeejoao-api/internal/guests"
 	"github.com/jadeejoao/jadeejoao-api/internal/importer"
+	"github.com/jadeejoao/jadeejoao-api/internal/instagram"
 	"github.com/jadeejoao/jadeejoao-api/internal/media"
 	"github.com/jadeejoao/jadeejoao-api/internal/messages"
 	"github.com/jadeejoao/jadeejoao-api/internal/platform"
@@ -23,14 +24,15 @@ import (
 // nil-able handles, so the API can be constructed with zero values for spec
 // export and handler tests.
 type Deps struct {
-	Pool     *pgxpool.Pool
-	Content  *content.Service
-	Guests   *guests.Service
-	Gifts    *gifts.Service
-	Messages *messages.Service
-	Media    *media.Service
-	Importer *importer.Service
-	Auth     AdminAuthenticator
+	Pool      *pgxpool.Pool
+	Content   *content.Service
+	Guests    *guests.Service
+	Gifts     *gifts.Service
+	Messages  *messages.Service
+	Media     *media.Service
+	Importer  *importer.Service
+	Instagram *instagram.Service
+	Auth      AdminAuthenticator
 }
 
 // Public rate limits, per IP, in-process (single replica). POSTs: generous

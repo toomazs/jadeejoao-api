@@ -333,6 +333,29 @@ components:
           format: uri
           type: string
       type: object
+    FeedOutputBody:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - https://example.com/schemas/FeedOutputBody.json
+          format: uri
+          readOnly: true
+          type: string
+        configured:
+          description: False while this person's Instagram token is not set up — the site links to the profile instead.
+          type: boolean
+        posts:
+          items:
+            $ref: "#/components/schemas/PostView"
+          type:
+            - array
+            - "null"
+      required:
+        - configured
+        - posts
+      type: object
     GettingTherePayload:
       additionalProperties: false
       properties:
@@ -1066,6 +1089,10 @@ components:
         body:
           description: Rich text as Markdown.
           type: string
+        bride:
+          $ref: "#/components/schemas/PersonPayload"
+        groom:
+          $ref: "#/components/schemas/PersonPayload"
         images:
           description: Public CDN image URLs.
           items:
@@ -1078,6 +1105,29 @@ components:
           type: string
       required:
         - title
+      type: object
+    PersonPayload:
+      additionalProperties: false
+      properties:
+        bio:
+          description: Short bio, written by the couple.
+          type: string
+        instagram:
+          description: Instagram handle, without the @.
+          examples:
+            - xadenascimento
+          type: string
+        name:
+          description: Display name for the chapter.
+          examples:
+            - Jade
+          type: string
+        photo_url:
+          description: Chapter portrait (public CDN URL).
+          format: uri
+          type: string
+      required:
+        - name
       type: object
     PixOutputBody:
       additionalProperties: false
@@ -1102,6 +1152,36 @@ components:
         - gift_id
         - amount_centavos
         - pix_code
+      type: object
+    PostView:
+      additionalProperties: false
+      properties:
+        caption:
+          type: string
+        id:
+          type: string
+        media_type:
+          description: IMAGE, VIDEO or CAROUSEL_ALBUM.
+          examples:
+            - IMAGE
+          type: string
+        media_url:
+          format: uri
+          type: string
+        permalink:
+          format: uri
+          type: string
+        thumbnail_url:
+          description: Preview image, present for VIDEO posts.
+          format: uri
+          type: string
+        timestamp:
+          description: Publish time, ISO 8601.
+          type: string
+      required:
+        - id
+        - media_type
+        - permalink
       type: object
     ProgrammeItem:
       additionalProperties: false
@@ -2037,6 +2117,37 @@ paths:
       summary: Submit RSVP
       tags:
         - guests
+  /api/v1/instagram/{person}:
+    get:
+      description: Returns the cached recent posts of one of the couple's Instagram accounts (Instagram API with Instagram Login). While no token is configured, configured=false and posts is empty — never an error.
+      operationId: get-instagram-feed
+      parameters:
+        - description: "Whose feed: the bride's or the groom's."
+          in: path
+          name: person
+          required: true
+          schema:
+            description: "Whose feed: the bride's or the groom's."
+            enum:
+              - bride
+              - groom
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FeedOutputBody"
+          description: OK
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Get an Instagram feed
+      tags:
+        - instagram
   /api/v1/messages:
     post:
       description: "Creates a pending guestbook message (Recado aos noivos). Publicly write-only: messages are read and moderated in the admin."

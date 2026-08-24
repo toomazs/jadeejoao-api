@@ -77,9 +77,22 @@ type HeroPayload struct {
 	Milestones    []HeroMilestone `json:"milestones,omitempty" maxItems:"3" doc:"Up to three story arches rendered beside the names."`
 }
 
-// OurStoryPayload is the couple's story section.
+// PersonPayload presents one of the couple in the story-film chapters: the
+// chapter portrait, a short bio, and the Instagram handle the site pulls
+// posts from.
+type PersonPayload struct {
+	Name      string `json:"name" example:"Jade" doc:"Display name for the chapter."`
+	Bio       string `json:"bio,omitempty" doc:"Short bio, written by the couple."`
+	PhotoURL  string `json:"photo_url,omitempty" format:"uri" doc:"Chapter portrait (public CDN URL)."`
+	Instagram string `json:"instagram,omitempty" example:"xadenascimento" doc:"Instagram handle, without the @."`
+}
+
+// OurStoryPayload is the couple's story section: the shared intro plus one
+// film chapter per person.
 type OurStoryPayload struct {
 	SectionBase
+	Bride *PersonPayload `json:"bride,omitempty"`
+	Groom *PersonPayload `json:"groom,omitempty"`
 }
 
 // BigDayPayload describes the venue and the timed programme.

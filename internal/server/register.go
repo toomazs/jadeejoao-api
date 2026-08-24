@@ -11,6 +11,7 @@ import (
 	"github.com/jadeejoao/jadeejoao-api/internal/gifts"
 	"github.com/jadeejoao/jadeejoao-api/internal/guests"
 	"github.com/jadeejoao/jadeejoao-api/internal/importer"
+	"github.com/jadeejoao/jadeejoao-api/internal/instagram"
 	"github.com/jadeejoao/jadeejoao-api/internal/media"
 	"github.com/jadeejoao/jadeejoao-api/internal/messages"
 	"github.com/jadeejoao/jadeejoao-api/internal/platform"
@@ -24,6 +25,7 @@ func Register(api huma.API, deps Deps) {
 	guests.RegisterPublic(api, deps.Guests)
 	gifts.RegisterPublic(api, deps.Gifts)
 	messages.RegisterPublic(api, deps.Messages)
+	instagram.RegisterPublic(api, deps.Instagram)
 
 	admin := huma.NewGroup(api, platform.APIBase+"/admin")
 	admin.UseSimpleModifier(func(op *huma.Operation) {

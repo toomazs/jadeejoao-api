@@ -19,6 +19,7 @@ import (
 	"github.com/jadeejoao/jadeejoao-api/internal/gifts"
 	"github.com/jadeejoao/jadeejoao-api/internal/guests"
 	"github.com/jadeejoao/jadeejoao-api/internal/importer"
+	"github.com/jadeejoao/jadeejoao-api/internal/instagram"
 	"github.com/jadeejoao/jadeejoao-api/internal/media"
 	"github.com/jadeejoao/jadeejoao-api/internal/messages"
 	"github.com/jadeejoao/jadeejoao-api/internal/platform"
@@ -71,6 +72,13 @@ func run() error {
 		slog.Warn("RESEND_API_KEY is set but RSVP_NOTIFY_EMAILS is empty — rsvp notifications DISABLED")
 	}
 
+	igSvc := instagram.NewService(cfg.InstagramBrideToken, cfg.InstagramGroomToken)
+	if cfg.InstagramBrideToken != "" || cfg.InstagramGroomToken != "" {
+		slog.Info("instagram feeds enabled",
+			"bride", cfg.InstagramBrideToken != "",
+			"groom", cfg.InstagramGroomToken != "")
+	}
+
 	contentSvc := content.NewService(content.NewRepo(pool))
 	guestsSvc := guests.NewService(guests.NewRepo(pool), contentSvc, nil, mailer)
 	deps := server.Deps{
@@ -82,10 +90,11 @@ func run() error {
 			MerchantName: cfg.PIXMerchantName,
 			MerchantCity: cfg.PIXMerchantCity,
 		}),
-		Messages: messages.NewService(messages.NewRepo(pool)),
-		Media:    media.NewService(media.NewRepo(pool), storage),
-		Importer: importer.NewService(importer.NewRepo(pool)),
-		Auth:     platform.NewAuthValidator(cfg.SupabaseJWKSURL, cfg.SupabaseURL+"/auth/v1", cfg.AdminEmails),
+		Messages:  messages.NewService(messages.NewRepo(pool)),
+		Media:     media.NewService(media.NewRepo(pool), storage),
+		Importer:  importer.NewService(importer.NewRepo(pool)),
+		Instagram: igSvc,
+		Auth:      platform.NewAuthValidator(cfg.SupabaseJWKSURL, cfg.SupabaseURL+"/auth/v1", cfg.AdminEmails),
 	}
 
 	srv := &http.Server{
