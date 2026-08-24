@@ -31,7 +31,7 @@ func BRCode(p Params) string {
 	}
 	var b strings.Builder
 	b.WriteString(tlv("00", "01")) // payload format indicator
-	b.WriteString(tlv("26", // merchant account information
+	b.WriteString(tlv("26",        // merchant account information
 		tlv("00", "br.gov.bcb.pix")+tlv("01", p.Key)))
 	b.WriteString(tlv("52", "0000")) // merchant category code (none)
 	b.WriteString(tlv("53", "986"))  // currency: BRL

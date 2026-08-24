@@ -303,10 +303,14 @@ func TestSubmitRSVPNotifiesCouple(t *testing.T) {
 		if !strings.Contains(subject, "Eduardo e família") {
 			t.Fatalf("subject = %q", subject)
 		}
-		if !strings.Contains(body, "Eduardo Silva") || !strings.Contains(body, "✅ vai") ||
-			!strings.Contains(body, "Ana Clara Silva") || !strings.Contains(body, "❌ não vai") ||
+		if !strings.Contains(body, "Eduardo Silva") || !strings.Contains(body, "vai ✓") ||
+			!strings.Contains(body, "Ana Clara Silva") || !strings.Contains(body, "não vai") ||
 			!strings.Contains(body, "1 sim, 1 não") {
 			t.Fatalf("body = %q", body)
+		}
+		// Dressed in the wedding's own colours, with their wordmark on top.
+		if !strings.Contains(body, "#50590d") || !strings.Contains(body, "brand/logo-vertical.png") {
+			t.Error("notification is not wearing the couple's identity")
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("notification never sent")

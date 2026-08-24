@@ -80,6 +80,7 @@ func run() error {
 
 	contentSvc := content.NewService(content.NewRepo(pool))
 	guestsSvc := guests.NewService(guests.NewRepo(pool), contentSvc, nil, mailer)
+	messagesSvc := messages.NewService(messages.NewRepo(pool), mailer)
 	deps := server.Deps{
 		Pool:    pool,
 		Content: contentSvc,
@@ -89,7 +90,7 @@ func run() error {
 			MerchantName: cfg.PIXMerchantName,
 			MerchantCity: cfg.PIXMerchantCity,
 		}),
-		Messages:  messages.NewService(messages.NewRepo(pool)),
+		Messages:  messagesSvc,
 		Media:     media.NewService(media.NewRepo(pool), storage),
 		Importer:  importer.NewService(importer.NewRepo(pool)),
 		Instagram: igSvc,
@@ -126,6 +127,7 @@ func run() error {
 		drainCtx, drainCancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer drainCancel()
 		guestsSvc.DrainNotifications(drainCtx)
+		messagesSvc.DrainNotifications(drainCtx)
 		if err != nil && !errors.Is(err, context.DeadlineExceeded) {
 			return err
 		}

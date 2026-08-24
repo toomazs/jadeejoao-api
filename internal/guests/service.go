@@ -6,7 +6,6 @@ import (
 	"encoding/csv"
 	"errors"
 	"fmt"
-	"html"
 	"log/slog"
 	"strings"
 	"sync"
@@ -16,6 +15,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/jadeejoao/jadeejoao-api/internal/platform"
+	"github.com/jadeejoao/jadeejoao-api/internal/platform/emailtpl"
 )
 
 var (
@@ -245,23 +245,24 @@ func (s *Service) DrainNotifications(ctx context.Context) {
 	}
 }
 
-// buildRSVPEmail renders the PT-BR notification listing every member's answer.
+// buildRSVPEmail renders the PT-BR notification listing every member's answer,
+// dressed in the wedding's own colours.
 func buildRSVPEmail(group Group, members []Member) (subject, body string) {
 	yes, no := 0, 0
-	var items strings.Builder
+	rows := make([]emailtpl.Row, 0, len(members))
 	for _, m := range members {
 		var answer string
 		switch m.Attending {
 		case "yes":
 			yes++
-			answer = "✅ vai"
+			answer = "vai ✓"
 		case "no":
 			no++
-			answer = "❌ não vai"
+			answer = "não vai"
 		default:
-			answer = "⏳ ainda não respondeu"
+			answer = "ainda não respondeu"
 		}
-		fmt.Fprintf(&items, "<li><strong>%s</strong> — %s</li>", html.EscapeString(m.FullName), answer)
+		rows = append(rows, emailtpl.Row{Label: m.FullName, Value: answer})
 	}
 	// Strip control characters: the label is header-bound text and an
 	// imported sheet cell could carry CR/LF.
@@ -271,11 +272,16 @@ func buildRSVPEmail(group Group, members []Member) (subject, body string) {
 		}
 		return r
 	}, group.Label)
+
 	subject = fmt.Sprintf("Confirmação de presença: %s", cleanLabel)
-	body = fmt.Sprintf(
-		"<h2>%s respondeu ao convite! 🎉</h2><ul>%s</ul><p>Resumo do grupo: %d sim, %d não.</p>",
-		html.EscapeString(group.Label), items.String(), yes, no,
-	)
+	body = emailtpl.Render(emailtpl.Page{
+		Preheader: fmt.Sprintf("%s respondeu ao convite.", cleanLabel),
+		Kicker:    "Confirmação de presença",
+		Headline:  fmt.Sprintf("%s respondeu ao convite!", group.Label),
+		Intro:     "Veja como ficou a resposta de cada pessoa do grupo:",
+		Rows:      rows,
+		Footnote:  fmt.Sprintf("Resumo do grupo: %d sim, %d não.", yes, no),
+	})
 	return subject, body
 }
 

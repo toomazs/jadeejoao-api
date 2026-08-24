@@ -1161,6 +1161,9 @@ components:
         pix_code:
           description: Static PIX BR Code (copia-e-cola), CRC included.
           type: string
+        qr_svg:
+          description: The same BR Code as an inline SVG QR symbol; inherits the surrounding text colour.
+          type: string
       required:
         - gift_id
         - amount_centavos

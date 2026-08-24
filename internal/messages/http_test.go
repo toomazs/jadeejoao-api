@@ -43,7 +43,7 @@ func (f *fakeRepo) UpdateStatus(_ context.Context, id uuid.UUID, status string) 
 func TestCreateMessageEndpoint(t *testing.T) {
 	repo := &fakeRepo{}
 	_, api := humatest.New(t)
-	RegisterPublic(api, NewService(repo))
+	RegisterPublic(api, NewService(repo, nil))
 
 	resp := api.Post("/api/v1/messages", map[string]any{
 		"author_name": "Eduardo Silva",

@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/jadeejoao/jadeejoao-api/internal/platform"
+	"github.com/jadeejoao/jadeejoao-api/internal/platform/pix"
 )
 
 // GiftView is one gift as the public site renders it: a PIX meta/cota card
@@ -45,13 +46,14 @@ type PixPreviewInput struct {
 	AmountCentavos int64  `query:"amount_centavos" minimum:"1" maximum:"10000000000" doc:"Amount in centavos. Optional for quota gifts (defaults to one quota); required for free-amount gifts."`
 }
 
-// PixOutput carries the PIX copia-e-cola string; the SPAs render the QR image
-// client-side.
+// PixOutput carries the PIX copia-e-cola string and the same payload drawn
+// as a QR symbol, so a guest on a desktop can pay with their phone.
 type PixOutput struct {
 	Body struct {
 		GiftID         string `json:"gift_id" format:"uuid"`
 		AmountCentavos int64  `json:"amount_centavos"`
 		PixCode        string `json:"pix_code" doc:"Static PIX BR Code (copia-e-cola), CRC included."`
+		QRSVG          string `json:"qr_svg,omitempty" doc:"The same BR Code as an inline SVG QR symbol; inherits the surrounding text colour."`
 	}
 }
 
@@ -124,6 +126,13 @@ func RegisterPublic(api huma.API, svc *Service) {
 		out.Body.GiftID = in.GiftID
 		out.Body.AmountCentavos = amount
 		out.Body.PixCode = code
+		// The QR is a convenience: a failure here must not deny the guest
+		// their copia-e-cola, which is the payment path that always works.
+		if qr, qrErr := pix.QRSVG(code); qrErr != nil {
+			slog.WarnContext(ctx, "pix qr render failed", "gift", in.GiftID, "error", qrErr)
+		} else {
+			out.Body.QRSVG = qr
+		}
 		return out, nil
 	})
 
