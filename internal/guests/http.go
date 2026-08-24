@@ -18,8 +18,11 @@ type MemberView struct {
 	GuestID   string  `json:"guest_id" format:"uuid"`
 	FullName  string  `json:"full_name" example:"Eduardo Silva"`
 	IsPrimary bool    `json:"is_primary" doc:"Whether this guest is the group's primary contact."`
-	Category  *string `json:"category,omitempty" enum:"adult,child,baby,elderly"`
+	Category  *string `json:"category,omitempty" enum:"adult,teen,child,baby,elderly"`
 	Attending string  `json:"attending" enum:"pending,yes,no"`
+	// AddedByGuest lets the invitation show how much of its allowance is
+	// spent, instead of offering a button that answers with 409.
+	AddedByGuest bool `json:"added_by_guest" doc:"True when a guest added this person to the invitation themselves."`
 }
 
 // GroupView is the guest group returned by lookup and RSVP.
@@ -168,11 +171,12 @@ func groupOutput(group Group, members []Member) *GroupOutput {
 	out.Body.Members = make([]MemberView, len(members))
 	for i, m := range members {
 		out.Body.Members[i] = MemberView{
-			GuestID:   m.ID.String(),
-			FullName:  m.FullName,
-			IsPrimary: m.IsPrimary,
-			Category:  m.Category,
-			Attending: m.Attending,
+			GuestID:      m.ID.String(),
+			FullName:     m.FullName,
+			IsPrimary:    m.IsPrimary,
+			Category:     m.Category,
+			Attending:    m.Attending,
+			AddedByGuest: m.AddedByGuest,
 		}
 	}
 	return out

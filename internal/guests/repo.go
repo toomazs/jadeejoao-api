@@ -54,7 +54,10 @@ func (r *pgRepo) ListMembers(ctx context.Context, groupID uuid.UUID) ([]Member, 
 	}
 	out := make([]Member, len(rows))
 	for i, row := range rows {
-		out[i] = Member{ID: row.ID, FullName: row.FullName, IsPrimary: row.IsPrimary, Category: row.Category, Attending: row.Attending}
+		out[i] = Member{
+			ID: row.ID, FullName: row.FullName, IsPrimary: row.IsPrimary,
+			Category: row.Category, Attending: row.Attending, AddedByGuest: row.AddedByGuest,
+		}
 	}
 	return out, nil
 }

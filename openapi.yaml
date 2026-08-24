@@ -992,6 +992,9 @@ components:
     MemberView:
       additionalProperties: false
       properties:
+        added_by_guest:
+          description: True when a guest added this person to the invitation themselves.
+          type: boolean
         attending:
           enum:
             - pending
@@ -1001,6 +1004,7 @@ components:
         category:
           enum:
             - adult
+            - teen
             - child
             - baby
             - elderly
@@ -1020,6 +1024,7 @@ components:
         - full_name
         - is_primary
         - attending
+        - added_by_guest
       type: object
     MessageCreatedOutputBody:
       additionalProperties: false

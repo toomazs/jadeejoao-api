@@ -53,6 +53,9 @@ type Member struct {
 	IsPrimary bool
 	Category  *string
 	Attending string
+	// AddedByGuest marks someone a guest put on the invitation themselves,
+	// rather than a name the couple typed into their spreadsheet.
+	AddedByGuest bool
 }
 
 // MaxCompanionsPerGroup bounds how many people one invitation may add to

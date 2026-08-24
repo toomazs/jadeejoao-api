@@ -9,7 +9,7 @@ from guest_groups
 where id = $1;
 
 -- name: ListGroupMembers :many
-select id, full_name, is_primary, category, attending
+select id, full_name, is_primary, category, attending, added_by_guest
 from guests
 where group_id = $1
 order by is_primary desc, full_name;
