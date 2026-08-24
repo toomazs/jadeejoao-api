@@ -62,9 +62,17 @@ type RSVPInput struct {
 type CompanionInput struct {
 	GroupID string `path:"group_id" format:"uuid"`
 	Body    struct {
-		FullName  string `json:"full_name" minLength:"2" maxLength:"120" example:"Maria Silva" doc:"Nome e sobrenome de quem vem junto."`
-		Attending string `json:"attending" enum:"yes,no" doc:"Se essa pessoa vai ao casamento."`
+		FullName  string  `json:"full_name" minLength:"2" maxLength:"120" example:"Maria Silva" doc:"Nome e sobrenome de quem vem junto."`
+		Attending string  `json:"attending" enum:"yes,no" doc:"Se essa pessoa vai ao casamento."`
+		Category  *string `json:"category,omitempty" enum:"adult,teen,child,baby,elderly" doc:"Faixa da pessoa, para a conta dos noivos. Omitido vira adulto."`
+		Gender    *string `json:"gender,omitempty" enum:"female,male" doc:"Opcional; serve só à organização do casal."`
 	}
+}
+
+// RemoveCompanionInput takes back someone the guest added.
+type RemoveCompanionInput struct {
+	GroupID string `path:"group_id" format:"uuid"`
+	GuestID string `path:"guest_id" format:"uuid"`
 }
 
 // SuggestInput is the typeahead query (AD-5, amended 2026-08-10).
@@ -156,7 +164,32 @@ func RegisterPublic(api huma.API, svc *Service) {
 		group, members, err := svc.AddCompanion(ctx, groupID, NewCompanion{
 			FullName:  in.Body.FullName,
 			Attending: in.Body.Attending,
+			Category:  in.Body.Category,
+			Gender:    in.Body.Gender,
 		})
+		if err != nil {
+			return nil, mapGuestErr(err)
+		}
+		return groupOutput(group, members), nil
+	})
+
+	huma.Register(api, huma.Operation{
+		OperationID: "remove-companion",
+		Method:      http.MethodDelete,
+		Path:        platform.APIBase + "/guests/{group_id}/companions/{guest_id}",
+		Summary:     "Remove a companion",
+		Description: "Takes back someone the guest added to their own invitation. Refuses for anyone the couple invited: a guest can undo their own additions, never edit the couple's list. Rejected after the RSVP deadline. Returns the remaining group.",
+		Tags:        []string{"guests"},
+	}, func(ctx context.Context, in *RemoveCompanionInput) (*GroupOutput, error) {
+		groupID, err := uuid.Parse(in.GroupID)
+		if err != nil {
+			return nil, huma.Error422UnprocessableEntity("Identificador de grupo inválido.")
+		}
+		guestID, err := uuid.Parse(in.GuestID)
+		if err != nil {
+			return nil, huma.Error422UnprocessableEntity("Identificador de convidado inválido.")
+		}
+		group, members, err := svc.RemoveCompanion(ctx, groupID, guestID)
 		if err != nil {
 			return nil, mapGuestErr(err)
 		}
@@ -198,6 +231,10 @@ func mapGuestErr(err error) error {
 		return huma.Error409Conflict("Esse nome já está na lista de convidados. Se for outra pessoa, adicione o sobrenome para diferenciar.")
 	case errors.Is(err, ErrInvalidName):
 		return huma.Error422UnprocessableEntity("Digite o nome e o sobrenome de quem vem com você.")
+	case errors.Is(err, ErrInvalidCategory):
+		return huma.Error422UnprocessableEntity("Opção inválida para essa pessoa. Recarregue a página e tente de novo.")
+	case errors.Is(err, ErrNotRemovable):
+		return huma.Error403Forbidden("Você só pode tirar do convite quem você mesmo adicionou. Para os demais, fale com os noivos.")
 	default:
 		slog.Error("guest request failed", "error", err)
 		return huma.Error500InternalServerError("Não conseguimos processar seu pedido agora. Tente novamente em instantes.")

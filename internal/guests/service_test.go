@@ -18,9 +18,10 @@ type fakeRepo struct {
 	group   Group
 	members []Member
 	applied []AttendanceUpdate
-	// companions counts what AddCompanion inserted, standing in for the
-	// added_by_guest column the real query counts.
+	// companions counts what AddCompanion inserted, and added remembers which
+	// rows those were — together they stand in for the added_by_guest column.
 	companions int
+	added      map[uuid.UUID]bool
 }
 
 func (f *fakeRepo) FindGuestByNormalizedName(_ context.Context, normalized string) (Member, uuid.UUID, error) {
@@ -44,10 +45,34 @@ func (f *fakeRepo) AddCompanion(_ context.Context, groupID uuid.UUID, c NewCompa
 			return Member{}, ErrNameTaken
 		}
 	}
-	added := Member{ID: uuid.New(), FullName: c.FullName, Attending: c.Attending}
+	added := Member{ID: uuid.New(), FullName: c.FullName, Attending: c.Attending, AddedByGuest: true}
 	f.members = append(f.members, added)
 	f.companions++
+	if f.added == nil {
+		f.added = map[uuid.UUID]bool{}
+	}
+	f.added[added.ID] = true
 	return added, nil
+}
+
+func (f *fakeRepo) RemoveCompanion(_ context.Context, groupID, guestID uuid.UUID) error {
+	if groupID != f.group.ID {
+		return ErrNotRemovable
+	}
+	for i, m := range f.members {
+		if m.ID == guestID {
+			// Only rows AddCompanion created; the fixture's own members stand
+			// in for the names the couple typed and must refuse.
+			if !f.added[guestID] {
+				return ErrNotRemovable
+			}
+			f.members = append(f.members[:i], f.members[i+1:]...)
+			delete(f.added, guestID)
+			f.companions--
+			return nil
+		}
+	}
+	return ErrNotRemovable
 }
 
 func (f *fakeRepo) GetGroup(_ context.Context, id uuid.UUID) (Group, error) {
@@ -520,5 +545,66 @@ func TestAddCompanionRefusedAfterTheDeadline(t *testing.T) {
 	if _, _, err := svc.AddCompanion(context.Background(), repo.group.ID,
 		NewCompanion{FullName: "Tarde Demais", Attending: "yes"}); !errors.Is(err, ErrDeadlinePassed) {
 		t.Fatalf("got %v, want ErrDeadlinePassed", err)
+	}
+}
+
+func TestRemoveCompanionOnlyReachesWhatTheGuestAdded(t *testing.T) {
+	repo, m1, _ := newFixture()
+	svc := NewService(repo, fixedDeadline("2027-07-07"), at("2026-08-24 12:00"), nil)
+	ctx := context.Background()
+
+	// Someone the couple invited is off limits, whatever the caller sends.
+	if _, _, err := svc.RemoveCompanion(ctx, repo.group.ID, m1); !errors.Is(err, ErrNotRemovable) {
+		t.Fatalf("removing a couple-invited guest: got %v, want ErrNotRemovable", err)
+	}
+
+	_, members, err := svc.AddCompanion(ctx, repo.group.ID,
+		NewCompanion{FullName: "Convidada Extra", Attending: "yes"})
+	if err != nil {
+		t.Fatalf("add: %v", err)
+	}
+	var added uuid.UUID
+	for _, m := range members {
+		if m.FullName == "Convidada Extra" {
+			added = m.ID
+		}
+	}
+
+	_, members, err = svc.RemoveCompanion(ctx, repo.group.ID, added)
+	if err != nil {
+		t.Fatalf("remove own companion: %v", err)
+	}
+	for _, m := range members {
+		if m.ID == added {
+			t.Fatal("companion still on the invitation after removal")
+		}
+	}
+
+	// And removing frees the slot back up.
+	if _, _, err := svc.AddCompanion(ctx, repo.group.ID,
+		NewCompanion{FullName: "Outra Convidada", Attending: "no"}); err != nil {
+		t.Fatalf("slot not freed after removal: %v", err)
+	}
+}
+
+func TestAddCompanionCategoryDefaultsAndValidates(t *testing.T) {
+	repo, _, _ := newFixture()
+	svc := NewService(repo, fixedDeadline("2027-07-07"), at("2026-08-24 12:00"), nil)
+	ctx := context.Background()
+
+	marciano := "marciano"
+	if _, _, err := svc.AddCompanion(ctx, repo.group.ID,
+		NewCompanion{FullName: "Ser Estranho", Attending: "yes", Category: &marciano}); !errors.Is(err, ErrInvalidCategory) {
+		t.Errorf("unknown category: got %v, want ErrInvalidCategory", err)
+	}
+	outro := "outro"
+	if _, _, err := svc.AddCompanion(ctx, repo.group.ID,
+		NewCompanion{FullName: "Pessoa Nova", Attending: "yes", Gender: &outro}); !errors.Is(err, ErrInvalidCategory) {
+		t.Errorf("unknown gender: got %v, want ErrInvalidCategory", err)
+	}
+	crianca := "child"
+	if _, _, err := svc.AddCompanion(ctx, repo.group.ID,
+		NewCompanion{FullName: "Filha Pequena", Attending: "yes", Category: &crianca}); err != nil {
+		t.Errorf("child rejected: %v", err)
 	}
 }

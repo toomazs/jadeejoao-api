@@ -38,6 +38,13 @@ var (
 
 	// ErrInvalidName: a companion needs an actual name.
 	ErrInvalidName = errors.New("companion name is empty")
+
+	// ErrInvalidCategory: the category is not one the couple counts by.
+	ErrInvalidCategory = errors.New("unknown guest category")
+
+	// ErrNotRemovable: the guest tried to remove someone the couple invited,
+	// rather than someone they added themselves.
+	ErrNotRemovable = errors.New("only guest-added companions can be removed")
 )
 
 // Group is a guest group (one invitation).
@@ -70,6 +77,18 @@ const MaxCompanionsPerGroup = 5
 type NewCompanion struct {
 	FullName  string
 	Attending string // "yes" | "no"
+	// Category feeds the couple's headcount — a child does not eat an adult
+	// meal, and a baby does not take a seat. Defaults to adult when the guest
+	// leaves it alone, which is what most companions are.
+	Category *string
+	// Gender is the couple's own bookkeeping, kept optional: a guest adding
+	// their partner should not be stopped by a field that plans nothing.
+	Gender *string
+}
+
+// validCategories mirrors the guests_category_check constraint.
+var validCategories = map[string]bool{
+	"adult": true, "teen": true, "child": true, "baby": true, "elderly": true,
 }
 
 // AttendanceUpdate sets one member's RSVP answer.
@@ -84,6 +103,7 @@ type AttendanceUpdate struct {
 type Repo interface {
 	FindGuestByNormalizedName(ctx context.Context, normalized string) (Member, uuid.UUID, error)
 	AddCompanion(ctx context.Context, groupID uuid.UUID, c NewCompanion) (Member, error)
+	RemoveCompanion(ctx context.Context, groupID, guestID uuid.UUID) error
 	GetGroup(ctx context.Context, id uuid.UUID) (Group, error)
 	ListMembers(ctx context.Context, groupID uuid.UUID) ([]Member, error)
 	UpdateAttendances(ctx context.Context, groupID uuid.UUID, updates []AttendanceUpdate) error
@@ -169,6 +189,16 @@ func (s *Service) AddCompanion(ctx context.Context, groupID uuid.UUID, c NewComp
 	if Normalize(c.FullName) == "" {
 		return Group{}, nil, ErrInvalidName
 	}
+	if c.Category == nil {
+		adult := "adult"
+		c.Category = &adult
+	}
+	if !validCategories[*c.Category] {
+		return Group{}, nil, ErrInvalidCategory
+	}
+	if c.Gender != nil && *c.Gender != "female" && *c.Gender != "male" {
+		return Group{}, nil, ErrInvalidCategory
+	}
 
 	deadline, err := s.deadline.RSVPDeadline(ctx)
 	if err != nil {
@@ -186,6 +216,27 @@ func (s *Service) AddCompanion(ctx context.Context, groupID uuid.UUID, c NewComp
 		return Group{}, nil, err
 	}
 	if _, err := s.repo.AddCompanion(ctx, groupID, c); err != nil {
+		return Group{}, nil, err
+	}
+	return s.groupWithMembers(ctx, groupID)
+}
+
+// RemoveCompanion takes back someone the guest added. It can only reach rows
+// the guest created themselves — the query, not this function, is what enforces
+// that, so no caller can talk its way past it.
+func (s *Service) RemoveCompanion(ctx context.Context, groupID, guestID uuid.UUID) (Group, []Member, error) {
+	deadline, err := s.deadline.RSVPDeadline(ctx)
+	if err != nil {
+		return Group{}, nil, fmt.Errorf("load rsvp deadline: %w", err)
+	}
+	passed, err := deadlinePassed(deadline, s.now())
+	if err != nil {
+		return Group{}, nil, fmt.Errorf("parse rsvp deadline %q: %w", deadline, err)
+	}
+	if passed {
+		return Group{}, nil, ErrDeadlinePassed
+	}
+	if err := s.repo.RemoveCompanion(ctx, groupID, guestID); err != nil {
 		return Group{}, nil, err
 	}
 	return s.groupWithMembers(ctx, groupID)

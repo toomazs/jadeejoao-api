@@ -91,12 +91,27 @@ components:
             - "yes"
             - "no"
           type: string
+        category:
+          description: Faixa da pessoa, para a conta dos noivos. Omitido vira adulto.
+          enum:
+            - adult
+            - teen
+            - child
+            - baby
+            - elderly
+          type: string
         full_name:
           description: Nome e sobrenome de quem vem junto.
           examples:
             - Maria Silva
           maxLength: 120
           minLength: 2
+          type: string
+        gender:
+          description: Opcional; serve só à organização do casal.
+          enum:
+            - female
+            - male
           type: string
       required:
         - full_name
@@ -2277,6 +2292,39 @@ paths:
                 $ref: "#/components/schemas/ErrorModel"
           description: Error
       summary: Add a companion
+      tags:
+        - guests
+  /api/v1/guests/{group_id}/companions/{guest_id}:
+    delete:
+      description: "Takes back someone the guest added to their own invitation. Refuses for anyone the couple invited: a guest can undo their own additions, never edit the couple's list. Rejected after the RSVP deadline. Returns the remaining group."
+      operationId: remove-companion
+      parameters:
+        - in: path
+          name: group_id
+          required: true
+          schema:
+            format: uuid
+            type: string
+        - in: path
+          name: guest_id
+          required: true
+          schema:
+            format: uuid
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GroupView"
+          description: OK
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Remove a companion
       tags:
         - guests
   /api/v1/guests/{group_id}/rsvp:

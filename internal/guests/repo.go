@@ -127,6 +127,8 @@ func (r *pgRepo) AddCompanion(ctx context.Context, groupID uuid.UUID, c NewCompa
 		GroupID:        groupID,
 		FullName:       c.FullName,
 		NormalizedName: Normalize(c.FullName),
+		Category:       c.Category,
+		Gender:         c.Gender,
 		Attending:      c.Attending,
 	})
 	if err != nil {
@@ -148,6 +150,21 @@ func (r *pgRepo) AddCompanion(ctx context.Context, groupID uuid.UUID, c NewCompa
 		Category:  inserted.Category,
 		Attending: inserted.Attending,
 	}, nil
+}
+
+// RemoveCompanion deletes one guest-added row. A miss means the id belongs to
+// someone the couple invited (or to another invitation entirely), which is a
+// refusal rather than a not-found: the row exists, it is just not the guest's
+// to remove.
+func (r *pgRepo) RemoveCompanion(ctx context.Context, groupID, guestID uuid.UUID) error {
+	affected, err := r.q.DeleteCompanion(ctx, guestsdb.DeleteCompanionParams{ID: guestID, GroupID: groupID})
+	if err != nil {
+		return err
+	}
+	if affected == 0 {
+		return ErrNotRemovable
+	}
+	return nil
 }
 
 func (r *pgRepo) UpdateAttendances(ctx context.Context, groupID uuid.UUID, updates []AttendanceUpdate) error {

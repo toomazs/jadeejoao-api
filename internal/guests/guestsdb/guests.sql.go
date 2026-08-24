@@ -215,10 +215,28 @@ func (q *Queries) CountGroupCompanions(ctx context.Context, groupID uuid.UUID) (
 	return count, err
 }
 
+const deleteCompanion = `-- name: DeleteCompanion :execrows
+delete from guests
+where id = $1 and group_id = $2 and added_by_guest
+`
+
+type DeleteCompanionParams struct {
+	ID      uuid.UUID
+	GroupID uuid.UUID
+}
+
+func (q *Queries) DeleteCompanion(ctx context.Context, arg DeleteCompanionParams) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteCompanion, arg.ID, arg.GroupID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const insertCompanion = `-- name: InsertCompanion :one
-insert into guests (group_id, full_name, normalized_name, category, attending,
-                    responded_at, added_by_guest)
-values ($1, $2, $3, 'adult', $4, now(), true)
+insert into guests (group_id, full_name, normalized_name, category, gender,
+                    attending, responded_at, added_by_guest)
+values ($1, $2, $3, $4, $5, $6, now(), true)
 returning id, full_name, is_primary, category, attending
 `
 
@@ -226,6 +244,8 @@ type InsertCompanionParams struct {
 	GroupID        uuid.UUID
 	FullName       string
 	NormalizedName string
+	Category       *string
+	Gender         *string
 	Attending      string
 }
 
@@ -242,6 +262,8 @@ func (q *Queries) InsertCompanion(ctx context.Context, arg InsertCompanionParams
 		arg.GroupID,
 		arg.FullName,
 		arg.NormalizedName,
+		arg.Category,
+		arg.Gender,
 		arg.Attending,
 	)
 	var i InsertCompanionRow

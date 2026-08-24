@@ -29,10 +29,17 @@ from guests
 where group_id = $1 and added_by_guest;
 
 -- name: InsertCompanion :one
-insert into guests (group_id, full_name, normalized_name, category, attending,
-                    responded_at, added_by_guest)
-values ($1, $2, $3, 'adult', $4, now(), true)
+insert into guests (group_id, full_name, normalized_name, category, gender,
+                    attending, responded_at, added_by_guest)
+values ($1, $2, $3, $4, $5, $6, now(), true)
 returning id, full_name, is_primary, category, attending;
+
+-- Removes someone the guest added, and only that: `added_by_guest` in the
+-- WHERE is the whole safety property. Without it, anyone who can open an
+-- invitation could delete the names the couple typed into their spreadsheet.
+-- name: DeleteCompanion :execrows
+delete from guests
+where id = $1 and group_id = $2 and added_by_guest;
 
 -- name: UpdateGuestAttendance :execrows
 update guests
