@@ -108,7 +108,7 @@ func TestParseRejectsBadFiles(t *testing.T) {
 	}
 
 	// XLSX extension, text content.
-	if _, err := ParseFile("lista.xlsx", []byte("nome,grupo\na,b")); !errors.As(err, &parseErr) {
+	if _, err := ParseFile("lista.xlsx", []byte("nome,convite\na,b")); !errors.As(err, &parseErr) {
 		t.Fatalf("text-as-xlsx: %v", err)
 	}
 
@@ -122,7 +122,7 @@ func TestParseRejectsBadFiles(t *testing.T) {
 	}
 
 	// Missing nome column.
-	if _, err := ParseFile("lista.csv", []byte("grupo,principal\nFamília,x\n")); !errors.As(err, &parseErr) {
+	if _, err := ParseFile("lista.csv", []byte("convite,principal\nFamília,x\n")); !errors.As(err, &parseErr) {
 		t.Fatalf("missing nome: %v", err)
 	}
 }
@@ -130,7 +130,7 @@ func TestParseRejectsBadFiles(t *testing.T) {
 // TestParseAcceptsOwnExport: the admin CSV export (BOM + presenca column)
 // must round-trip through the importer — presenca is recognized and ignored.
 func TestParseAcceptsOwnExport(t *testing.T) {
-	export := "\xef\xbb\xbfgrupo,nome,principal,categoria,presenca\nFamília Silva,Eduardo Silva,sim,adulto,sim\nFamília Silva,Ana Clara Silva,,criança,pendente\n"
+	export := "\xef\xbb\xbfconvite,nome,principal,categoria,presenca\nFamília Silva,Eduardo Silva,sim,adulto,sim\nFamília Silva,Ana Clara Silva,,criança,pendente\n"
 	rows, err := ParseFile("convidados.csv", []byte(export))
 	if err != nil {
 		t.Fatalf("own export rejected: %v", err)
@@ -143,8 +143,8 @@ func TestParseAcceptsOwnExport(t *testing.T) {
 // TestParseTranscodesWindows1252: Brazilian Excel's plain CSV export is
 // ANSI/CP-1252; accented names must survive, not become mojibake.
 func TestParseTranscodesWindows1252(t *testing.T) {
-	// "nome,grupo\nJoão Conceição,Família\n" with õ/ã/ç as CP-1252 bytes.
-	csv := []byte("nome,grupo\nJo\xe3o Concei\xe7\xe3o,Fam\xedlia\n")
+	// "nome,convite\nJoão Conceição,Família\n" with õ/ã/ç as CP-1252 bytes.
+	csv := []byte("nome,convite\nJo\xe3o Concei\xe7\xe3o,Fam\xedlia\n")
 	rows, err := ParseFile("lista.csv", csv)
 	if err != nil {
 		t.Fatalf("cp-1252 rejected: %v", err)
@@ -155,7 +155,7 @@ func TestParseTranscodesWindows1252(t *testing.T) {
 }
 
 func TestParseRowLevelIssues(t *testing.T) {
-	csv := "nome,grupo,categoria\nEduardo Silva,Família,marciano\n,Família,adulto\n"
+	csv := "nome,convite,categoria\nEduardo Silva,Família,marciano\n,Família,adulto\n"
 	rows, err := ParseFile("lista.csv", []byte(csv))
 	if err != nil {
 		t.Fatalf("ParseFile: %v", err)
@@ -170,5 +170,49 @@ func TestParseRowLevelIssues(t *testing.T) {
 	// Empty nome: issue reported, row kept for the report but unusable.
 	if rows[1].Nome != "" || len(rows[1].Issues) != 1 {
 		t.Fatalf("empty nome handling: %+v", rows[1])
+	}
+}
+
+// The couple's sheet uses "grupo" for social circles — Amigos, Família,
+// Trabalho — with fifty-odd people under each. Reading that column as the
+// invitation group would put one guest in charge of answering for the whole
+// circle, so it must land on Circulo and group nobody.
+func TestSheetGrupoIsACircleAndNeverGroups(t *testing.T) {
+	csv := "nome,grupo,genero,jj,lista,observacao\n" +
+		"Ana Souza,Amigos,feminino,Jade,Madrinha,Prima da noiva\n" +
+		"Bruno Lima,Amigos,masculino,João,Convidado,\n"
+	rows, err := ParseFile("lista.csv", []byte(csv))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if len(rows) != 2 {
+		t.Fatalf("expected 2 rows, got %d", len(rows))
+	}
+	for _, r := range rows {
+		if r.Circulo != "Amigos" {
+			t.Errorf("%q: circulo = %q, want Amigos", r.Nome, r.Circulo)
+		}
+		if r.Grupo != "" {
+			t.Errorf("%q: grupo (invitation) = %q, want empty — the sheet has no invitation column", r.Nome, r.Grupo)
+		}
+	}
+	if got := rows[0]; got.Genero == nil || *got.Genero != "female" ||
+		got.Lado == nil || *got.Lado != "bride" ||
+		got.Papel != "Madrinha" || got.Nota != "Prima da noiva" {
+		t.Errorf("row 0 lost sheet fields: %+v", got)
+	}
+	if got := rows[1]; got.Lado == nil || *got.Lado != "groom" {
+		t.Errorf("row 1 side: %+v", got)
+	}
+
+	// And the decisive part: two people in the same circle are two invitations.
+	plan, _ := Reconcile(rows, Snapshot{})
+	if len(plan.Groups) != 2 {
+		t.Fatalf("a shared circle produced %d invitation group(s), want 2 — one guest would answer for the other", len(plan.Groups))
+	}
+	for _, g := range plan.Groups {
+		if len(g.Guests) != 1 || !g.Guests[0].IsPrimary {
+			t.Errorf("group %q should hold one guest who is their own primary, got %+v", g.Label, g.Guests)
+		}
 	}
 }

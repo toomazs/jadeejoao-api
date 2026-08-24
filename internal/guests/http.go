@@ -3,6 +3,7 @@ package guests
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 
@@ -51,6 +52,15 @@ type RSVPInput struct {
 	GroupID string `path:"group_id" format:"uuid"`
 	Body    struct {
 		Responses []RSVPAnswer `json:"responses" minItems:"1" doc:"Exactly one answer per member of the group."`
+	}
+}
+
+// CompanionInput adds one more person to an existing invitation.
+type CompanionInput struct {
+	GroupID string `path:"group_id" format:"uuid"`
+	Body    struct {
+		FullName  string `json:"full_name" minLength:"2" maxLength:"120" example:"Maria Silva" doc:"Nome e sobrenome de quem vem junto."`
+		Attending string `json:"attending" enum:"yes,no" doc:"Se essa pessoa vai ao casamento."`
 	}
 }
 
@@ -126,6 +136,29 @@ func RegisterPublic(api huma.API, svc *Service) {
 		}
 		return groupOutput(group, members), nil
 	})
+
+	huma.Register(api, huma.Operation{
+		OperationID:   "add-companion",
+		Method:        http.MethodPost,
+		Path:          platform.APIBase + "/guests/{group_id}/companions",
+		Summary:       "Add a companion",
+		Description:   fmt.Sprintf("Adds one more person to an existing invitation and records their answer in the same move. Capped at %d per invitation. Rejected after the RSVP deadline. Returns the whole group, so the caller can render the new list without refetching.", MaxCompanionsPerGroup),
+		Tags:          []string{"guests"},
+		DefaultStatus: http.StatusCreated,
+	}, func(ctx context.Context, in *CompanionInput) (*GroupOutput, error) {
+		groupID, err := uuid.Parse(in.GroupID)
+		if err != nil {
+			return nil, huma.Error422UnprocessableEntity("Identificador de grupo inválido.")
+		}
+		group, members, err := svc.AddCompanion(ctx, groupID, NewCompanion{
+			FullName:  in.Body.FullName,
+			Attending: in.Body.Attending,
+		})
+		if err != nil {
+			return nil, mapGuestErr(err)
+		}
+		return groupOutput(group, members), nil
+	})
 }
 
 func groupOutput(group Group, members []Member) *GroupOutput {
@@ -155,6 +188,12 @@ func mapGuestErr(err error) error {
 		return huma.Error422UnprocessableEntity("A confirmação precisa incluir exatamente os convidados do seu grupo, sem repetições.")
 	case errors.Is(err, ErrInvalidAnswer):
 		return huma.Error422UnprocessableEntity("Resposta inválida: confirme com \"yes\" ou \"no\" para cada convidado.")
+	case errors.Is(err, ErrCompanionLimit):
+		return huma.Error409Conflict(fmt.Sprintf("Você já adicionou %d acompanhantes, que é o limite deste convite. Se precisar levar mais alguém, fale com os noivos.", MaxCompanionsPerGroup))
+	case errors.Is(err, ErrNameTaken):
+		return huma.Error409Conflict("Esse nome já está na lista de convidados. Se for outra pessoa, adicione o sobrenome para diferenciar.")
+	case errors.Is(err, ErrInvalidName):
+		return huma.Error422UnprocessableEntity("Digite o nome e o sobrenome de quem vem com você.")
 	default:
 		slog.Error("guest request failed", "error", err)
 		return huma.Error500InternalServerError("Não conseguimos processar seu pedido agora. Tente novamente em instantes.")

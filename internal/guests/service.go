@@ -29,6 +29,15 @@ var (
 	// enum already blocks these; the service re-validates so the domain rule
 	// never depends on the schema layer alone.
 	ErrInvalidAnswer = errors.New("attendance answer must be yes or no")
+
+	// ErrCompanionLimit: the invitation has already added everyone it may.
+	ErrCompanionLimit = errors.New("companion limit reached for this group")
+
+	// ErrNameTaken: the companion's name is already somewhere on the list.
+	ErrNameTaken = errors.New("guest name already on the list")
+
+	// ErrInvalidName: a companion needs an actual name.
+	ErrInvalidName = errors.New("companion name is empty")
 )
 
 // Group is a guest group (one invitation).
@@ -46,6 +55,20 @@ type Member struct {
 	Attending string
 }
 
+// MaxCompanionsPerGroup bounds how many people one invitation may add to
+// itself. The list is the couple's budget, and nothing else stands between a
+// guest and the guest list — so the ceiling is generous enough for a partner
+// and children, and low enough that a mistake stays a mistake.
+const MaxCompanionsPerGroup = 5
+
+// NewCompanion is someone a guest brings along: a name, and whether they come.
+// Everything else the couple records — side, circle, role — belongs to them,
+// not to the guest, so it is left for the panel.
+type NewCompanion struct {
+	FullName  string
+	Attending string // "yes" | "no"
+}
+
 // AttendanceUpdate sets one member's RSVP answer.
 type AttendanceUpdate struct {
 	GuestID   uuid.UUID
@@ -57,6 +80,7 @@ type AttendanceUpdate struct {
 // of the group.
 type Repo interface {
 	FindGuestByNormalizedName(ctx context.Context, normalized string) (Member, uuid.UUID, error)
+	AddCompanion(ctx context.Context, groupID uuid.UUID, c NewCompanion) (Member, error)
 	GetGroup(ctx context.Context, id uuid.UUID) (Group, error)
 	ListMembers(ctx context.Context, groupID uuid.UUID) ([]Member, error)
 	UpdateAttendances(ctx context.Context, groupID uuid.UUID, updates []AttendanceUpdate) error
@@ -122,6 +146,43 @@ func (s *Service) Lookup(ctx context.Context, fullName string) (Group, []Member,
 	}
 	_, groupID, err := s.repo.FindGuestByNormalizedName(ctx, normalized)
 	if err != nil {
+		return Group{}, nil, err
+	}
+	return s.groupWithMembers(ctx, groupID)
+}
+
+// AddCompanion puts one more person on the invitation, answering for them at
+// the same time — the guest already knows whether whoever they are bringing
+// will be there, so asking twice would be theatre.
+//
+// The deadline applies: after it, the guest list is the caterer's problem, not
+// a form's. The group must exist and hold members, so a stale group_id from an
+// old tab cannot conjure guests out of nothing.
+func (s *Service) AddCompanion(ctx context.Context, groupID uuid.UUID, c NewCompanion) (Group, []Member, error) {
+	if c.Attending != "yes" && c.Attending != "no" {
+		return Group{}, nil, ErrInvalidAnswer
+	}
+	c.FullName = strings.Join(strings.Fields(c.FullName), " ")
+	if Normalize(c.FullName) == "" {
+		return Group{}, nil, ErrInvalidName
+	}
+
+	deadline, err := s.deadline.RSVPDeadline(ctx)
+	if err != nil {
+		return Group{}, nil, fmt.Errorf("load rsvp deadline: %w", err)
+	}
+	passed, err := deadlinePassed(deadline, s.now())
+	if err != nil {
+		return Group{}, nil, fmt.Errorf("parse rsvp deadline %q: %w", deadline, err)
+	}
+	if passed {
+		return Group{}, nil, ErrDeadlinePassed
+	}
+
+	if _, err := s.repo.GetGroup(ctx, groupID); err != nil {
+		return Group{}, nil, err
+	}
+	if _, err := s.repo.AddCompanion(ctx, groupID, c); err != nil {
 		return Group{}, nil, err
 	}
 	return s.groupWithMembers(ctx, groupID)
@@ -363,7 +424,11 @@ func (s *Service) ExportCSV(ctx context.Context) ([]byte, error) {
 	// UTF-8 BOM so Excel-on-Windows renders "criança"/"não" correctly.
 	buf.WriteString("\xef\xbb\xbf")
 	w := csv.NewWriter(&buf)
-	if err := w.Write([]string{"grupo", "nome", "principal", "categoria", "presenca"}); err != nil {
+	// "convite", not "grupo": the couple's sheet uses "grupo" for social
+	// circles (Amigos, Família, Trabalho), and the importer reads it that way.
+	// Exporting the invitation group under that name would re-import as a
+	// circle and quietly dissolve every family into separate invitations.
+	if err := w.Write([]string{"convite", "nome", "principal", "categoria", "presenca"}); err != nil {
 		return nil, err
 	}
 	for _, g := range groups {

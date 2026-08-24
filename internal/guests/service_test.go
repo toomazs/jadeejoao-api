@@ -18,6 +18,9 @@ type fakeRepo struct {
 	group   Group
 	members []Member
 	applied []AttendanceUpdate
+	// companions counts what AddCompanion inserted, standing in for the
+	// added_by_guest column the real query counts.
+	companions int
 }
 
 func (f *fakeRepo) FindGuestByNormalizedName(_ context.Context, normalized string) (Member, uuid.UUID, error) {
@@ -27,6 +30,24 @@ func (f *fakeRepo) FindGuestByNormalizedName(_ context.Context, normalized strin
 		}
 	}
 	return Member{}, uuid.Nil, ErrNotFound
+}
+
+func (f *fakeRepo) AddCompanion(_ context.Context, groupID uuid.UUID, c NewCompanion) (Member, error) {
+	if groupID != f.group.ID {
+		return Member{}, ErrNotFound
+	}
+	if f.companions >= MaxCompanionsPerGroup {
+		return Member{}, ErrCompanionLimit
+	}
+	for _, m := range f.members {
+		if Normalize(m.FullName) == Normalize(c.FullName) {
+			return Member{}, ErrNameTaken
+		}
+	}
+	added := Member{ID: uuid.New(), FullName: c.FullName, Attending: c.Attending}
+	f.members = append(f.members, added)
+	f.companions++
+	return added, nil
 }
 
 func (f *fakeRepo) GetGroup(_ context.Context, id uuid.UUID) (Group, error) {
@@ -430,5 +451,74 @@ func TestSubmitRSVPMemberCoverage(t *testing.T) {
 				t.Fatalf("got %v, want ErrInvalidMembers", err)
 			}
 		})
+	}
+}
+
+func TestAddCompanionJoinsTheInvitationAndAnswers(t *testing.T) {
+	repo, _, _ := newFixture()
+	svc := NewService(repo, fixedDeadline("2027-07-07"), at("2026-08-24 12:00"), nil)
+
+	before := len(repo.members)
+	_, members, err := svc.AddCompanion(context.Background(), repo.group.ID,
+		NewCompanion{FullName: "  Maria   das   Dores  ", Attending: "yes"})
+	if err != nil {
+		t.Fatalf("add: %v", err)
+	}
+	if len(members) != before+1 {
+		t.Fatalf("group has %d members, want %d", len(members), before+1)
+	}
+	var found *Member
+	for i := range members {
+		if members[i].FullName == "Maria das Dores" {
+			found = &members[i]
+		}
+	}
+	if found == nil {
+		t.Fatalf("companion not in the returned group; inner whitespace should collapse, got %+v", members)
+	}
+	if found.Attending != "yes" {
+		t.Errorf("attending = %q, want yes — the answer comes with the name", found.Attending)
+	}
+}
+
+func TestAddCompanionRefusesBlankNamesAndBadAnswers(t *testing.T) {
+	repo, _, _ := newFixture()
+	svc := NewService(repo, fixedDeadline("2027-07-07"), at("2026-08-24 12:00"), nil)
+	group := repo.group.ID
+
+	if _, _, err := svc.AddCompanion(context.Background(), group,
+		NewCompanion{FullName: "   ", Attending: "yes"}); !errors.Is(err, ErrInvalidName) {
+		t.Errorf("blank name: got %v, want ErrInvalidName", err)
+	}
+	if _, _, err := svc.AddCompanion(context.Background(), group,
+		NewCompanion{FullName: "Alguém", Attending: "talvez"}); !errors.Is(err, ErrInvalidAnswer) {
+		t.Errorf("bad answer: got %v, want ErrInvalidAnswer", err)
+	}
+}
+
+func TestAddCompanionStopsAtTheCeiling(t *testing.T) {
+	repo, _, _ := newFixture()
+	svc := NewService(repo, fixedDeadline("2027-07-07"), at("2026-08-24 12:00"), nil)
+
+	for i := 0; i < MaxCompanionsPerGroup; i++ {
+		if _, _, err := svc.AddCompanion(context.Background(), repo.group.ID,
+			NewCompanion{FullName: fmt.Sprintf("Convidado Extra %d", i), Attending: "yes"}); err != nil {
+			t.Fatalf("companion %d rejected early: %v", i, err)
+		}
+	}
+	_, _, err := svc.AddCompanion(context.Background(), repo.group.ID,
+		NewCompanion{FullName: "Um A Mais", Attending: "yes"})
+	if !errors.Is(err, ErrCompanionLimit) {
+		t.Fatalf("got %v, want ErrCompanionLimit after %d companions", err, MaxCompanionsPerGroup)
+	}
+}
+
+func TestAddCompanionRefusedAfterTheDeadline(t *testing.T) {
+	repo, _, _ := newFixture()
+	svc := NewService(repo, fixedDeadline("2026-01-01"), at("2026-08-24 12:00"), nil)
+
+	if _, _, err := svc.AddCompanion(context.Background(), repo.group.ID,
+		NewCompanion{FullName: "Tarde Demais", Attending: "yes"}); !errors.Is(err, ErrDeadlinePassed) {
+		t.Fatalf("got %v, want ErrDeadlinePassed", err)
 	}
 }

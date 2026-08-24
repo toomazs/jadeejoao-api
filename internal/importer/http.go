@@ -60,7 +60,7 @@ func RegisterAdmin(api huma.API, svc *Service) {
 		if len(data) > maxImportBytes {
 			return nil, huma.Error422UnprocessableEntity("Arquivo muito grande: o limite é 20 MB.")
 		}
-		report, err := svc.Import(ctx, form.File.Filename, data)
+		report, err := svc.Import(ctx, form.File.Filename, data, Options{})
 		var parseErr *ParseError
 		if errors.As(err, &parseErr) {
 			return nil, huma.Error422UnprocessableEntity(parseErr.Message)

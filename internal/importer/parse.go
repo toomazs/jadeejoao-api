@@ -19,12 +19,24 @@ import (
 
 // Row is one parsed guest line of the file.
 type Row struct {
-	Line      int // 1-based line/row number in the file, for error messages
-	Nome      string
+	Line int // 1-based line/row number in the file, for error messages
+	Nome string
+	// Grupo is the INVITATION group — the people who share one invitation and
+	// one primary who answers for all of them. Empty means the guest is their
+	// own invitation. It is deliberately not the sheet's "grupo" column; see
+	// Circulo.
 	Grupo     string
 	Principal bool
-	Categoria *string // storage enum: adult|child|baby|elderly
-	Issues    []RowIssue
+	Categoria *string // storage enum: adult|teen|child|baby|elderly
+	Genero    *string // storage enum: female|male
+	Lado      *string // storage enum: bride|groom|both
+	// Circulo is the couple's own social bucket (Amigos, Família, Trabalho).
+	// It groups nothing: making it the invitation group would put one primary
+	// in charge of answering for fifty friends at once.
+	Circulo string
+	Papel   string // Madrinha, Padrinho, Dama de honra, Celebrante…
+	Nota    string // free text, usually kinship ("Marido Renata Gonçalves")
+	Issues  []RowIssue
 }
 
 // RowIssue is a non-fatal problem found while parsing one row.
@@ -40,14 +52,28 @@ type ParseError struct {
 
 func (e *ParseError) Error() string { return e.Message }
 
-const expectedHeadersHint = `A planilha precisa ter uma linha de cabeçalho com as colunas: "nome" (obrigatória), "grupo", "principal" e "categoria" (opcionais). Exporte como CSV ou XLSX e envie o arquivo.`
+const expectedHeadersHint = `A planilha precisa ter uma linha de cabeçalho com a coluna "nome" (obrigatória). Também são lidas, se existirem: "convite" (quem divide o mesmo convite), "principal", "categoria", "gênero", "jj" (de quem é o convidado), "grupo" (amigos, família, trabalho), "lista" (padrinho, madrinha…) e "observação". Exporte como CSV ou XLSX e envie o arquivo.`
 
 // categoryByNormalized maps PT-BR sheet values to the storage enum.
 var categoryByNormalized = map[string]string{
 	"adulto": "adult", "adulta": "adult",
-	"crianca": "child",
-	"bebe":    "baby",
-	"idoso":   "elderly", "idosa": "elderly",
+	"adolescente": "teen",
+	"crianca":     "child",
+	"bebe":        "baby",
+	"idoso":       "elderly", "idosa": "elderly",
+}
+
+// genderByNormalized maps the sheet's "gênero" column to the storage enum.
+var genderByNormalized = map[string]string{
+	"feminino": "female", "f": "female", "mulher": "female",
+	"masculino": "male", "m": "male", "homem": "male",
+}
+
+// sideByNormalized maps the sheet's "jj" column — whose guest this is.
+var sideByNormalized = map[string]string{
+	"jade": "bride", "noiva": "bride",
+	"joao": "groom", "noivo": "groom",
+	"jj": "both", "ambos": "both", "os dois": "both",
 }
 
 // truthyPrincipal marks a row as the group's primary guest.
@@ -144,7 +170,25 @@ func rowsFromRecords(records [][]string) ([]Row, error) {
 	// "presenca" is recognized so the API's own CSV export round-trips
 	// (export → edit in Excel → re-import); its values are IGNORED — the
 	// importer never writes attendance (AD-10).
-	known := map[string]string{"nome": "nome", "grupo": "grupo", "principal": "principal", "categoria": "categoria", "presenca": "presenca"}
+	known := map[string]string{
+		"nome": "nome",
+		// The invitation group. Named "convite" rather than "grupo" because
+		// the couple's sheet already uses "grupo" for social circles, and
+		// reading one as the other would hand a single guest the power to
+		// answer for everyone else in their circle.
+		"convite": "convite", "familia": "convite",
+		"principal": "principal",
+		"categoria": "categoria",
+		"genero":    "genero", "sexo": "genero",
+		"jj": "lado", "lado": "lado", "de quem": "lado",
+		"grupo": "circulo", "circulo": "circulo",
+		"lista": "papel", "papel": "papel",
+		"observacao": "nota", "obs": "nota",
+		// Ignored on purpose (AD-10: the importer never writes attendance),
+		// but recognized so the couple's own sheet and the API's CSV export
+		// both round-trip instead of being rejected.
+		"presenca": "presenca", "confirmacao": "presenca",
+	}
 	columns := map[string]int{}
 	var unrecognized []string
 	for i, cell := range records[0] {
@@ -190,14 +234,37 @@ func rowsFromRecords(records [][]string) ([]Row, error) {
 			continue
 		}
 
-		row := Row{Line: line, Nome: cellAt(record, "nome"), Grupo: cellAt(record, "grupo")}
+		row := Row{
+			Line:    line,
+			Nome:    cellAt(record, "nome"),
+			Grupo:   cellAt(record, "convite"),
+			Circulo: cellAt(record, "circulo"),
+			Papel:   cellAt(record, "papel"),
+			Nota:    cellAt(record, "nota"),
+		}
 		row.Principal = truthyPrincipal[guests.Normalize(cellAt(record, "principal"))]
 		if raw := cellAt(record, "categoria"); raw != "" {
 			if mapped, ok := categoryByNormalized[guests.Normalize(raw)]; ok {
 				row.Categoria = &mapped
 			} else {
 				row.Issues = append(row.Issues, RowIssue{Line: line,
-					Message: fmt.Sprintf("Categoria %q não reconhecida (use adulto, criança, bebê ou idoso); convidado importado sem categoria.", raw)})
+					Message: fmt.Sprintf("Categoria %q não reconhecida (use adulto, adolescente, criança, bebê ou idoso); convidado importado sem categoria.", raw)})
+			}
+		}
+		if raw := cellAt(record, "genero"); raw != "" {
+			if mapped, ok := genderByNormalized[guests.Normalize(raw)]; ok {
+				row.Genero = &mapped
+			} else {
+				row.Issues = append(row.Issues, RowIssue{Line: line,
+					Message: fmt.Sprintf("Gênero %q não reconhecido (use feminino ou masculino); convidado importado sem gênero.", raw)})
+			}
+		}
+		if raw := cellAt(record, "lado"); raw != "" {
+			if mapped, ok := sideByNormalized[guests.Normalize(raw)]; ok {
+				row.Lado = &mapped
+			} else {
+				row.Issues = append(row.Issues, RowIssue{Line: line,
+					Message: fmt.Sprintf("Valor %q na coluna JJ não reconhecido (use Jade, João ou JJ); convidado importado sem essa marcação.", raw)})
 			}
 		}
 		if row.Nome == "" {

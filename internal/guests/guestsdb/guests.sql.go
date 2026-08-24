@@ -200,6 +200,73 @@ func (q *Queries) SuggestGuestNames(ctx context.Context, prefix string) ([]strin
 	return items, nil
 }
 
+const countGroupCompanions = `-- name: CountGroupCompanions :one
+select count(*)
+from guests
+where group_id = $1 and added_by_guest
+`
+
+func (q *Queries) CountGroupCompanions(ctx context.Context, groupID uuid.UUID) (int64, error) {
+	row := q.db.QueryRow(ctx, countGroupCompanions, groupID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
+const insertCompanion = `-- name: InsertCompanion :one
+insert into guests (group_id, full_name, normalized_name, category, attending,
+                    responded_at, added_by_guest)
+values ($1, $2, $3, 'adult', $4, now(), true)
+returning id, full_name, is_primary, category, attending
+`
+
+type InsertCompanionParams struct {
+	GroupID        uuid.UUID
+	FullName       string
+	NormalizedName string
+	Attending      string
+}
+
+type InsertCompanionRow struct {
+	ID        uuid.UUID
+	FullName  string
+	IsPrimary bool
+	Category  *string
+	Attending string
+}
+
+func (q *Queries) InsertCompanion(ctx context.Context, arg InsertCompanionParams) (InsertCompanionRow, error) {
+	row := q.db.QueryRow(ctx, insertCompanion,
+		arg.GroupID,
+		arg.FullName,
+		arg.NormalizedName,
+		arg.Attending,
+	)
+	var i InsertCompanionRow
+	err := row.Scan(
+		&i.ID,
+		&i.FullName,
+		&i.IsPrimary,
+		&i.Category,
+		&i.Attending,
+	)
+	return i, err
+}
+
+const lockGroupForCompanion = `-- name: LockGroupForCompanion :one
+select id
+from guest_groups
+where id = $1
+for update
+`
+
+func (q *Queries) LockGroupForCompanion(ctx context.Context, id uuid.UUID) (uuid.UUID, error) {
+	row := q.db.QueryRow(ctx, lockGroupForCompanion, id)
+	var id_ uuid.UUID
+	err := row.Scan(&id_)
+	return id_, err
+}
+
 const updateGuestAttendance = `-- name: UpdateGuestAttendance :execrows
 update guests
 set attending = $3, responded_at = now(), updated_at = now()

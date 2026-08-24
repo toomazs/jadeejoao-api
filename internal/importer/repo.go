@@ -51,7 +51,7 @@ func (r *pgRepo) Snapshot(ctx context.Context) (Snapshot, error) {
 // Apply executes the whole plan in one transaction. It writes identity fields
 // only — attendance belongs to the guests service and is never touched here
 // (AD-10).
-func (r *pgRepo) Apply(ctx context.Context, plan Plan) error {
+func (r *pgRepo) Apply(ctx context.Context, plan Plan, replace bool) error {
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
 		return err
@@ -59,6 +59,13 @@ func (r *pgRepo) Apply(ctx context.Context, plan Plan) error {
 	defer tx.Rollback(ctx) //nolint:errcheck // no-op after commit
 
 	q := r.q.WithTx(tx)
+	// Inside the same transaction as the writes: a wipe that commits without
+	// its replacement would leave the couple with no guest list at all.
+	if replace {
+		if err := q.DeleteAllGuestGroups(ctx); err != nil {
+			return fmt.Errorf("clear guest list: %w", err)
+		}
+	}
 	for _, group := range plan.Groups {
 		var groupID uuid.UUID
 		if group.ExistingID != nil {
@@ -83,6 +90,8 @@ func (r *pgRepo) Apply(ctx context.Context, plan Plan) error {
 				guestID = *guest.ExistingID
 				if err := q.UpdateGuestIdentity(ctx, importerdb.UpdateGuestIdentityParams{
 					ID: guestID, FullName: guest.FullName, Category: guest.Category,
+					Gender: guest.Gender, Side: guest.Side, Circle: guest.Circle,
+					CeremonyRole: guest.CeremonyRole, Notes: guest.Notes,
 				}); err != nil {
 					return fmt.Errorf("update guest %q: %w", guest.FullName, err)
 				}
@@ -90,6 +99,8 @@ func (r *pgRepo) Apply(ctx context.Context, plan Plan) error {
 				inserted, err := q.InsertImportedGuest(ctx, importerdb.InsertImportedGuestParams{
 					GroupID: groupID, FullName: guest.FullName, NormalizedName: guest.NormalizedName,
 					IsPrimary: false, Category: guest.Category,
+					Gender: guest.Gender, Side: guest.Side, Circle: guest.Circle,
+					CeremonyRole: guest.CeremonyRole, Notes: guest.Notes,
 				})
 				var pgErr *pgconn.PgError
 				if errors.As(err, &pgErr) && pgErr.Code == "23505" {

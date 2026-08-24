@@ -12,6 +12,7 @@ import (
 )
 
 type fakeImportRepo struct {
+	replaced bool
 	snap    Snapshot
 	applied *Plan
 	report  []byte
@@ -19,8 +20,9 @@ type fakeImportRepo struct {
 
 func (f *fakeImportRepo) Snapshot(context.Context) (Snapshot, error) { return f.snap, nil }
 
-func (f *fakeImportRepo) Apply(_ context.Context, plan Plan) error {
+func (f *fakeImportRepo) Apply(_ context.Context, plan Plan, replace bool) error {
 	f.applied = &plan
+	f.replaced = replace
 	return nil
 }
 
@@ -51,7 +53,7 @@ func TestImportEndpoint(t *testing.T) {
 	_, api := humatest.New(t)
 	RegisterAdmin(api, NewService(repo))
 
-	csv := "nome,grupo,principal,categoria\nEduardo Silva,Família Silva,sim,adulto\nAna Clara Silva,Família Silva,,criança\n"
+	csv := "nome,convite,principal,categoria\nEduardo Silva,Família Silva,sim,adulto\nAna Clara Silva,Família Silva,,criança\n"
 	contentType, body := multipartFile(t, "convidados.csv", []byte(csv))
 
 	resp := api.Post("/import", "Content-Type: "+contentType, body)

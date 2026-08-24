@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/jadeejoao/jadeejoao-api/internal/guests/guestsdb"
@@ -91,6 +92,61 @@ func (r *pgRepo) ListAllGuests(ctx context.Context) (map[uuid.UUID][]Member, err
 
 // UpdateAttendances applies every answer in one transaction; any update that
 // does not match exactly one guest of the group aborts the whole submission.
+// AddCompanion inserts one guest the primary brought along, refusing once the
+// invitation has spent its allowance.
+//
+// The count and the insert share a transaction that holds a row lock on the
+// group, because the cheap version of this — count, then insert — lets two
+// phones open the same invitation and each be told there is one slot left.
+func (r *pgRepo) AddCompanion(ctx context.Context, groupID uuid.UUID, c NewCompanion) (Member, error) {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return Member{}, err
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck // no-op after commit
+
+	q := r.q.WithTx(tx)
+	if _, err := q.LockGroupForCompanion(ctx, groupID); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return Member{}, ErrNotFound
+		}
+		return Member{}, err
+	}
+	already, err := q.CountGroupCompanions(ctx, groupID)
+	if err != nil {
+		return Member{}, err
+	}
+	if already >= MaxCompanionsPerGroup {
+		return Member{}, ErrCompanionLimit
+	}
+
+	inserted, err := q.InsertCompanion(ctx, guestsdb.InsertCompanionParams{
+		GroupID:        groupID,
+		FullName:       c.FullName,
+		NormalizedName: Normalize(c.FullName),
+		Attending:      c.Attending,
+	})
+	if err != nil {
+		// normalized_name is globally unique: the name is already on the list,
+		// which is a message for the guest, not a 500.
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+			return Member{}, ErrNameTaken
+		}
+		return Member{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return Member{}, err
+	}
+	return Member{
+		ID:        inserted.ID,
+		FullName:  inserted.FullName,
+		IsPrimary: inserted.IsPrimary,
+		Category:  inserted.Category,
+		Attending: inserted.Attending,
+	}, nil
+}
+
 func (r *pgRepo) UpdateAttendances(ctx context.Context, groupID uuid.UUID, updates []AttendanceUpdate) error {
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {

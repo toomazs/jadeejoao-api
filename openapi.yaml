@@ -75,6 +75,33 @@ components:
       required:
         - title
       type: object
+    CompanionInputBody:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - https://example.com/schemas/CompanionInputBody.json
+          format: uri
+          readOnly: true
+          type: string
+        attending:
+          description: Se essa pessoa vai ao casamento.
+          enum:
+            - "yes"
+            - "no"
+          type: string
+        full_name:
+          description: Nome e sobrenome de quem vem junto.
+          examples:
+            - Maria Silva
+          maxLength: 120
+          minLength: 2
+          type: string
+      required:
+        - full_name
+        - attending
+      type: object
     Conflict:
       additionalProperties: false
       properties:
@@ -1746,7 +1773,7 @@ paths:
         - admin
   /api/v1/admin/guests/export:
     get:
-      description: PT-BR headers and values (grupo, nome, principal, categoria, presenca).
+      description: PT-BR headers and values (convite, nome, principal, categoria, presenca). Re-importable as-is.
       operationId: admin-export-guests
       responses:
         "200":
@@ -2212,6 +2239,39 @@ paths:
                 $ref: "#/components/schemas/ErrorModel"
           description: Error
       summary: Suggest guest names
+      tags:
+        - guests
+  /api/v1/guests/{group_id}/companions:
+    post:
+      description: Adds one more person to an existing invitation and records their answer in the same move. Capped at 5 per invitation. Rejected after the RSVP deadline. Returns the whole group, so the caller can render the new list without refetching.
+      operationId: add-companion
+      parameters:
+        - in: path
+          name: group_id
+          required: true
+          schema:
+            format: uuid
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CompanionInputBody"
+        required: true
+      responses:
+        "201":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GroupView"
+          description: Created
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Add a companion
       tags:
         - guests
   /api/v1/guests/{group_id}/rsvp:

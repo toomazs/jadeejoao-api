@@ -37,9 +37,19 @@ func (q *Queries) InsertImportReport(ctx context.Context, report []byte) (uuid.U
 	return id, err
 }
 
+const deleteAllGuestGroups = `-- name: DeleteAllGuestGroups :exec
+delete from guest_groups
+`
+
+func (q *Queries) DeleteAllGuestGroups(ctx context.Context) error {
+	_, err := q.db.Exec(ctx, deleteAllGuestGroups)
+	return err
+}
+
 const insertImportedGuest = `-- name: InsertImportedGuest :one
-insert into guests (group_id, full_name, normalized_name, is_primary, category)
-values ($1, $2, $3, $4, $5)
+insert into guests (group_id, full_name, normalized_name, is_primary, category,
+                    gender, side, circle, ceremony_role, notes)
+values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 returning id
 `
 
@@ -49,6 +59,11 @@ type InsertImportedGuestParams struct {
 	NormalizedName string
 	IsPrimary      bool
 	Category       *string
+	Gender         *string
+	Side           *string
+	Circle         string
+	CeremonyRole   string
+	Notes          string
 }
 
 func (q *Queries) InsertImportedGuest(ctx context.Context, arg InsertImportedGuestParams) (uuid.UUID, error) {
@@ -58,6 +73,11 @@ func (q *Queries) InsertImportedGuest(ctx context.Context, arg InsertImportedGue
 		arg.NormalizedName,
 		arg.IsPrimary,
 		arg.Category,
+		arg.Gender,
+		arg.Side,
+		arg.Circle,
+		arg.CeremonyRole,
+		arg.Notes,
 	)
 	var id uuid.UUID
 	err := row.Scan(&id)
@@ -169,17 +189,32 @@ func (q *Queries) UpdateGroupLabel(ctx context.Context, arg UpdateGroupLabelPara
 
 const updateGuestIdentity = `-- name: UpdateGuestIdentity :exec
 update guests
-set full_name = $2, category = $3, updated_at = now()
+set full_name = $2, category = $3, gender = $4, side = $5,
+    circle = $6, ceremony_role = $7, notes = $8, updated_at = now()
 where id = $1
 `
 
 type UpdateGuestIdentityParams struct {
-	ID       uuid.UUID
-	FullName string
-	Category *string
+	ID           uuid.UUID
+	FullName     string
+	Category     *string
+	Gender       *string
+	Side         *string
+	Circle       string
+	CeremonyRole string
+	Notes        string
 }
 
 func (q *Queries) UpdateGuestIdentity(ctx context.Context, arg UpdateGuestIdentityParams) error {
-	_, err := q.db.Exec(ctx, updateGuestIdentity, arg.ID, arg.FullName, arg.Category)
+	_, err := q.db.Exec(ctx, updateGuestIdentity,
+		arg.ID,
+		arg.FullName,
+		arg.Category,
+		arg.Gender,
+		arg.Side,
+		arg.Circle,
+		arg.CeremonyRole,
+		arg.Notes,
+	)
 	return err
 }

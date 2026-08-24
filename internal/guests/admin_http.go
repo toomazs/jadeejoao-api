@@ -76,7 +76,7 @@ func RegisterAdmin(api huma.API, svc *Service) {
 		Method:      http.MethodGet,
 		Path:        "/guests/export",
 		Summary:     "Export guest list as CSV",
-		Description: "PT-BR headers and values (grupo, nome, principal, categoria, presenca).",
+		Description: "PT-BR headers and values (convite, nome, principal, categoria, presenca). Re-importable as-is.",
 		Tags:        []string{"guests"},
 	}, func(ctx context.Context, _ *struct{}) (*ExportOutput, error) {
 		data, err := svc.ExportCSV(ctx)

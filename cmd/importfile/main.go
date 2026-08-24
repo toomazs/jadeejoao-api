@@ -21,18 +21,19 @@ import (
 func main() {
 	file := flag.String("file", "", "path to the .csv or .xlsx guest list")
 	apply := flag.Bool("apply", false, "write the reconciled plan (default is a dry-run)")
+	replace := flag.Bool("replace", false, "DESTRUCTIVE: empty the guest list first, so the file becomes the whole truth (drops every RSVP answer)")
 	flag.Parse()
 	if *file == "" {
 		fmt.Fprintln(os.Stderr, "usage: importfile -file <lista.csv|lista.xlsx> [-apply]")
 		os.Exit(2)
 	}
-	if err := run(*file, *apply); err != nil {
+	if err := run(*file, *apply, *replace); err != nil {
 		slog.Error("import failed", "error", err)
 		os.Exit(1)
 	}
 }
 
-func run(path string, apply bool) error {
+func run(path string, apply, replace bool) error {
 	platform.LoadDotEnv(".env")
 	cfg, err := platform.LoadConfig()
 	if err != nil {
@@ -54,7 +55,7 @@ func run(path string, apply bool) error {
 
 	var report importer.Report
 	if apply {
-		report, err = importer.NewService(repo).Import(ctx, name, data)
+		report, err = importer.NewService(repo).Import(ctx, name, data, importer.Options{Replace: replace})
 		if err != nil {
 			return err
 		}
@@ -64,12 +65,23 @@ func run(path string, apply bool) error {
 		if err != nil {
 			return err
 		}
-		snap, err := repo.Snapshot(ctx)
-		if err != nil {
-			return err
+		// Mirror what -apply would do: replacing reconciles against nothing,
+		// so the rehearsal has to look at an empty snapshot too. Otherwise
+		// the operator reads a merge report and approves a wipe.
+		var snap importer.Snapshot
+		if !replace {
+			snap, err = repo.Snapshot(ctx)
+			if err != nil {
+				return err
+			}
 		}
 		_, report = importer.Reconcile(rows, snap)
-		fmt.Println("== DRY-RUN (nada gravado; use -apply) ==")
+		if replace {
+			fmt.Println("== DRY-RUN, MODO SUBSTITUIR (nada gravado; use -apply) ==")
+			fmt.Println("   com -apply, a lista atual seria APAGADA antes de gravar estes nomes.")
+		} else {
+			fmt.Println("== DRY-RUN (nada gravado; use -apply) ==")
+		}
 	}
 
 	fmt.Printf("adicionados: %d | atualizados: %d | não mencionados: %d | conflitos: %d | erros: %d\n",

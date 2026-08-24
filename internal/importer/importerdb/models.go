@@ -48,6 +48,12 @@ type Guest struct {
 	RespondedAt    *time.Time
 	CreatedAt      time.Time
 	UpdatedAt      time.Time
+	Gender         *string
+	Side           *string
+	Circle         string
+	CeremonyRole   string
+	Notes          string
+	AddedByGuest   bool
 }
 
 type GuestGroup struct {

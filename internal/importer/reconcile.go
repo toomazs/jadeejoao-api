@@ -36,6 +36,11 @@ type GuestPlan struct {
 	FullName       string
 	NormalizedName string
 	Category       *string
+	Gender         *string
+	Side           *string
+	Circle         string
+	CeremonyRole   string
+	Notes          string
 	IsPrimary      bool
 }
 
@@ -211,6 +216,11 @@ func Reconcile(rows []Row, snap Snapshot) (Plan, Report) {
 				FullName:       s.row.Nome,
 				NormalizedName: guests.Normalize(s.row.Nome),
 				Category:       s.row.Categoria,
+				Gender:         s.row.Genero,
+				Side:           s.row.Lado,
+				Circle:         s.row.Circulo,
+				CeremonyRole:   s.row.Papel,
+				Notes:          s.row.Nota,
 				IsPrimary:      i == primaryIdx,
 			}
 			if s.existingID != nil {

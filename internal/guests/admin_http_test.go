@@ -39,7 +39,7 @@ func TestAdminDashboardAndExport(t *testing.T) {
 		t.Fatalf("export = %d: %s", resp.Code, resp.Body.String())
 	}
 	csv := resp.Body.String()
-	if !strings.Contains(csv, "grupo,nome,principal,categoria,presenca") {
+	if !strings.Contains(csv, "convite,nome,principal,categoria,presenca") {
 		t.Fatalf("csv header missing: %s", csv)
 	}
 	if !strings.Contains(csv, "Eduardo e família,Eduardo Silva,sim,,sim") {
