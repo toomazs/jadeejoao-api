@@ -278,6 +278,23 @@ components:
       required:
         - outcome
       type: object
+    DressCodeLook:
+      additionalProperties: false
+      properties:
+        body:
+          description: Guidance for this look, as Markdown.
+          type: string
+        image_url:
+          description: Reference photograph.
+          format: uri
+          type: string
+        title:
+          examples:
+            - Para elas
+          type: string
+      required:
+        - title
+      type: object
     DressCodePayload:
       additionalProperties: false
       properties:
@@ -293,6 +310,13 @@ components:
           description: Public CDN image URLs.
           items:
             type: string
+          type:
+            - array
+            - "null"
+        looks:
+          description: Reference looks, rendered alternating sides.
+          items:
+            $ref: "#/components/schemas/DressCodeLook"
           type:
             - array
             - "null"

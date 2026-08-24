@@ -172,10 +172,20 @@ type GiftsIntroPayload struct {
 	SectionBase
 }
 
-// DressCodePayload carries the dress code formula and guidance.
+// DressCodeLook is one reference look: who it is for, what it means, and a
+// photograph that says it better than the words do.
+type DressCodeLook struct {
+	Title    string `json:"title" example:"Para elas"`
+	Body     string `json:"body,omitempty" doc:"Guidance for this look, as Markdown."`
+	ImageURL string `json:"image_url,omitempty" format:"uri" doc:"Reference photograph."`
+}
+
+// DressCodePayload carries the dress code formula and one reference look per
+// audience — the couple adds or removes looks in the admin.
 type DressCodePayload struct {
 	SectionBase
-	Attire string `json:"attire,omitempty" example:"Sofisticado, confortável, vestido longo, esporte fino." doc:"Short dress-code formula."`
+	Attire string          `json:"attire,omitempty" example:"Sofisticado, confortável, vestido longo, esporte fino." doc:"Short dress-code formula."`
+	Looks  []DressCodeLook `json:"looks,omitempty" doc:"Reference looks, rendered alternating sides."`
 }
 
 // GoodPracticesPayload lists the couple's playful house rules.
