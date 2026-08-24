@@ -69,7 +69,7 @@ type Member struct {
 // itself. The list is the couple's budget, and nothing else stands between a
 // guest and the guest list — so the ceiling is generous enough for a partner
 // and children, and low enough that a mistake stays a mistake.
-const MaxCompanionsPerGroup = 5
+const MaxCompanionsPerGroup = 10
 
 // NewCompanion is someone a guest brings along: a name, and whether they come.
 // Everything else the couple records — side, circle, role — belongs to them,
