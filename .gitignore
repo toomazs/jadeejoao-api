@@ -18,3 +18,8 @@ email-*.html
 # Editor/OS noise
 .DS_Store
 Thumbs.db
+
+# Operator-only, kept out of the public repo
+docs/
+scripts/
+tmp_*/
