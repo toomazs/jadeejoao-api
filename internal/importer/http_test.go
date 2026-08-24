@@ -13,9 +13,9 @@ import (
 
 type fakeImportRepo struct {
 	replaced bool
-	snap    Snapshot
-	applied *Plan
-	report  []byte
+	snap     Snapshot
+	applied  *Plan
+	report   []byte
 }
 
 func (f *fakeImportRepo) Snapshot(context.Context) (Snapshot, error) { return f.snap, nil }
