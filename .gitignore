@@ -6,6 +6,9 @@
 scripts/.venv/
 scripts/.instagram-session.json
 
+# Local previews written by cmd/mailtest
+email-*.html
+
 # Build artifacts
 /bin/
 *.exe
