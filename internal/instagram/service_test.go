@@ -9,71 +9,83 @@ import (
 	"time"
 )
 
-const feedJSON = `{"data":[
-	{"id":"1","media_type":"VIDEO","media_url":"https://cdn.example/v.mp4","thumbnail_url":"https://cdn.example/t.jpg","permalink":"https://www.instagram.com/p/a/","timestamp":"2026-08-01T12:00:00+0000"},
-	{"id":"2","media_type":"IMAGE","media_url":"https://cdn.example/i.jpg","permalink":"https://www.instagram.com/p/b/","caption":"legenda"},
-	{"id":"3","media_type":"IMAGE","permalink":"https://www.instagram.com/p/c/"}
-]}`
+const manifestJSON = `[
+	{"id":"1","media_type":"VIDEO","media_url":"https://cdn.example/v-thumb.jpg","permalink":"https://www.instagram.com/p/a/","timestamp":"2026-08-01T12:00:00-03:00"},
+	{"id":"2","media_type":"IMAGE","media_url":"https://cdn.example/i.jpg","permalink":"https://www.instagram.com/p/b/","caption":"legenda"}
+]`
 
 func newTestService(t *testing.T, handler http.HandlerFunc) *Service {
 	t.Helper()
 	srv := httptest.NewServer(handler)
 	t.Cleanup(srv.Close)
-	s := NewService("tok-bride", "")
-	s.baseURL = srv.URL
-	return s
+	return NewService(srv.URL)
 }
 
-func TestPostsMapsFiltersAndCaches(t *testing.T) {
+func TestPostsReadsManifestAndCaches(t *testing.T) {
 	var calls atomic.Int32
 	s := newTestService(t, func(w http.ResponseWriter, r *http.Request) {
 		calls.Add(1)
-		if r.URL.Path != "/me/media" {
-			t.Errorf("unexpected path %q", r.URL.Path)
-		}
-		if r.URL.Query().Get("access_token") != "tok-bride" {
-			w.WriteHeader(http.StatusBadRequest)
+		if r.URL.Path != "/bride.json" {
+			http.NotFound(w, r)
 			return
 		}
-		_, _ = w.Write([]byte(feedJSON))
+		_, _ = w.Write([]byte(manifestJSON))
 	})
 
-	posts, err := s.Posts(context.Background(), PersonBride)
-	if err != nil {
-		t.Fatalf("Posts: %v", err)
+	posts, exists, err := s.Posts(context.Background(), PersonBride)
+	if err != nil || !exists {
+		t.Fatalf("Posts: exists=%v err=%v", exists, err)
 	}
-	// Entry 3 has no media at all and must be dropped.
 	if len(posts) != 2 {
 		t.Fatalf("got %d posts, want 2", len(posts))
 	}
-	if posts[0].ThumbnailURL != "https://cdn.example/t.jpg" || posts[0].MediaType != "VIDEO" {
+	if posts[0].MediaType != "VIDEO" || posts[0].MediaURL != "https://cdn.example/v-thumb.jpg" {
 		t.Fatalf("video mapping wrong: %+v", posts[0])
 	}
 	if posts[1].Caption != "legenda" {
 		t.Fatalf("caption lost: %+v", posts[1])
 	}
 
-	if _, err := s.Posts(context.Background(), PersonBride); err != nil {
+	if _, _, err := s.Posts(context.Background(), PersonBride); err != nil {
 		t.Fatalf("cached Posts: %v", err)
 	}
 	if calls.Load() != 1 {
-		t.Fatalf("expected 1 upstream call, got %d", calls.Load())
+		t.Fatalf("expected 1 manifest fetch, got %d", calls.Load())
 	}
 }
 
-func TestPostsKeepsLastGoodFeedOnFailure(t *testing.T) {
+func TestMissingManifestMeansNotConfigured(t *testing.T) {
+	var calls atomic.Int32
+	s := newTestService(t, func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		// Supabase answers 400/404 JSON for absent public objects.
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`{"error":"not_found"}`))
+	})
+
+	posts, exists, err := s.Posts(context.Background(), PersonGroom)
+	if err != nil || exists || posts != nil {
+		t.Fatalf("missing manifest: posts=%v exists=%v err=%v", posts, exists, err)
+	}
+	// The miss is cached too — no hammering while nothing is imported.
+	if _, _, _ = s.Posts(context.Background(), PersonGroom); calls.Load() != 1 {
+		t.Fatalf("expected 1 fetch for cached miss, got %d", calls.Load())
+	}
+}
+
+func TestFailureKeepsLastGoodFeed(t *testing.T) {
 	var fail atomic.Bool
 	s := newTestService(t, func(w http.ResponseWriter, _ *http.Request) {
 		if fail.Load() {
 			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
-		_, _ = w.Write([]byte(feedJSON))
+		_, _ = w.Write([]byte(manifestJSON))
 	})
 
-	good, err := s.Posts(context.Background(), PersonBride)
-	if err != nil || len(good) == 0 {
-		t.Fatalf("seed fetch: posts=%d err=%v", len(good), err)
+	good, exists, err := s.Posts(context.Background(), PersonBride)
+	if err != nil || !exists || len(good) == 0 {
+		t.Fatalf("seed fetch: posts=%d exists=%v err=%v", len(good), exists, err)
 	}
 
 	// Expire the cache, then break the upstream.
@@ -84,31 +96,22 @@ func TestPostsKeepsLastGoodFeedOnFailure(t *testing.T) {
 	s.cache[PersonBride] = entry
 	s.mu.Unlock()
 
-	posts, err := s.Posts(context.Background(), PersonBride)
+	posts, exists, err := s.Posts(context.Background(), PersonBride)
 	if err == nil {
 		t.Fatal("expected an error from the broken upstream")
 	}
-	if len(posts) != len(good) {
-		t.Fatalf("last good feed lost: got %d posts, want %d", len(posts), len(good))
-	}
-
-	// Within failureTTL the failure is served from cache — no hammering.
-	if _, err := s.Posts(context.Background(), PersonBride); err != nil {
-		t.Fatalf("backoff read should not error, got %v", err)
+	if !exists || len(posts) != len(good) {
+		t.Fatalf("last good feed lost: posts=%d exists=%v", len(posts), exists)
 	}
 }
 
-func TestUnconfiguredPerson(t *testing.T) {
-	s := NewService("", "")
-	if s.Configured(PersonBride) || s.Configured(PersonGroom) {
-		t.Fatal("no token should mean not configured")
-	}
-	posts, err := s.Posts(context.Background(), PersonGroom)
-	if err != nil || posts != nil {
-		t.Fatalf("unconfigured feed: posts=%v err=%v", posts, err)
-	}
+func TestNilAndUnconfiguredService(t *testing.T) {
 	var nilSvc *Service
-	if nilSvc.Configured(PersonBride) {
-		t.Fatal("nil service must report not configured")
+	if posts, exists, err := nilSvc.Posts(context.Background(), PersonBride); posts != nil || exists || err != nil {
+		t.Fatal("nil service must answer empty and not configured")
+	}
+	empty := NewService("")
+	if posts, exists, err := empty.Posts(context.Background(), PersonBride); posts != nil || exists || err != nil {
+		t.Fatal("empty base must answer empty and not configured")
 	}
 }

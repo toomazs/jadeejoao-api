@@ -72,12 +72,11 @@ func run() error {
 		slog.Warn("RESEND_API_KEY is set but RSVP_NOTIFY_EMAILS is empty — rsvp notifications DISABLED")
 	}
 
-	igSvc := instagram.NewService(cfg.InstagramBrideToken, cfg.InstagramGroomToken)
-	if cfg.InstagramBrideToken != "" || cfg.InstagramGroomToken != "" {
-		slog.Info("instagram feeds enabled",
-			"bride", cfg.InstagramBrideToken != "",
-			"groom", cfg.InstagramGroomToken != "")
-	}
+	// Imported Instagram posts live in the public bucket (one-shot operator
+	// import); the API only reads the manifests from there.
+	igSvc := instagram.NewService(
+		cfg.SupabaseURL + "/storage/v1/object/public/" + cfg.StorageBucket + "/instagram",
+	)
 
 	contentSvc := content.NewService(content.NewRepo(pool))
 	guestsSvc := guests.NewService(guests.NewRepo(pool), contentSvc, nil, mailer)

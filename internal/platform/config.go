@@ -32,12 +32,6 @@ type Config struct {
 	NotifyFrom   string
 	NotifyEmails []string
 
-	// Instagram feeds (Instagram API with Instagram Login, long-lived tokens).
-	// Optional: an empty token disables that person's feed — the endpoint
-	// then answers configured=false and the site links to the profile.
-	InstagramBrideToken string
-	InstagramGroomToken string
-
 	CORSOrigins []string
 }
 
@@ -45,25 +39,23 @@ type Config struct {
 // variable is reported at once so a broken deploy fails loudly and completely.
 func LoadConfig() (*Config, error) {
 	cfg := &Config{
-		Port:                getEnv("PORT", "8080"),
-		DatabaseURL:         os.Getenv("DATABASE_URL"),
-		SupabaseURL:         strings.TrimRight(os.Getenv("SUPABASE_URL"), "/"),
-		SupabaseJWKSURL:     os.Getenv("SUPABASE_JWKS_URL"),
-		StorageS3Endpoint:   os.Getenv("STORAGE_S3_ENDPOINT"),
-		StorageS3Region:     os.Getenv("STORAGE_S3_REGION"),
-		StorageS3AccessKey:  os.Getenv("STORAGE_S3_ACCESS_KEY"),
-		StorageS3SecretKey:  os.Getenv("STORAGE_S3_SECRET_KEY"),
-		StorageBucket:       getEnv("STORAGE_BUCKET", "site-media"),
-		AdminEmails:         splitList(os.Getenv("ADMIN_EMAILS")),
-		PIXKey:              os.Getenv("PIX_KEY"),
-		PIXMerchantName:     os.Getenv("PIX_MERCHANT_NAME"),
-		PIXMerchantCity:     os.Getenv("PIX_MERCHANT_CITY"),
-		ResendAPIKey:        os.Getenv("RESEND_API_KEY"),
-		NotifyFrom:          getEnv("RESEND_FROM", "Casamento Jade & João <onboarding@resend.dev>"),
-		NotifyEmails:        splitList(os.Getenv("RSVP_NOTIFY_EMAILS")),
-		InstagramBrideToken: os.Getenv("INSTAGRAM_BRIDE_TOKEN"),
-		InstagramGroomToken: os.Getenv("INSTAGRAM_GROOM_TOKEN"),
-		CORSOrigins:         splitList(getEnv("CORS_ORIGINS", "http://localhost:5173,http://localhost:5174")),
+		Port:               getEnv("PORT", "8080"),
+		DatabaseURL:        os.Getenv("DATABASE_URL"),
+		SupabaseURL:        strings.TrimRight(os.Getenv("SUPABASE_URL"), "/"),
+		SupabaseJWKSURL:    os.Getenv("SUPABASE_JWKS_URL"),
+		StorageS3Endpoint:  os.Getenv("STORAGE_S3_ENDPOINT"),
+		StorageS3Region:    os.Getenv("STORAGE_S3_REGION"),
+		StorageS3AccessKey: os.Getenv("STORAGE_S3_ACCESS_KEY"),
+		StorageS3SecretKey: os.Getenv("STORAGE_S3_SECRET_KEY"),
+		StorageBucket:      getEnv("STORAGE_BUCKET", "site-media"),
+		AdminEmails:        splitList(os.Getenv("ADMIN_EMAILS")),
+		PIXKey:             os.Getenv("PIX_KEY"),
+		PIXMerchantName:    os.Getenv("PIX_MERCHANT_NAME"),
+		PIXMerchantCity:    os.Getenv("PIX_MERCHANT_CITY"),
+		ResendAPIKey:       os.Getenv("RESEND_API_KEY"),
+		NotifyFrom:         getEnv("RESEND_FROM", "Casamento Jade & João <onboarding@resend.dev>"),
+		NotifyEmails:       splitList(os.Getenv("RSVP_NOTIFY_EMAILS")),
+		CORSOrigins:        splitList(getEnv("CORS_ORIGINS", "http://localhost:5173,http://localhost:5174")),
 	}
 
 	if cfg.SupabaseJWKSURL == "" && cfg.SupabaseURL != "" {

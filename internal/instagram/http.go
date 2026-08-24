@@ -18,7 +18,7 @@ type FeedInput struct {
 // FeedOutput is the public feed response.
 type FeedOutput struct {
 	Body struct {
-		Configured bool       `json:"configured" doc:"False while this person's Instagram token is not set up — the site links to the profile instead."`
+		Configured bool       `json:"configured" doc:"False until an Instagram import has been run for this person — the site links to the profile instead."`
 		Posts      []PostView `json:"posts"`
 	}
 }
@@ -30,21 +30,18 @@ func RegisterPublic(api huma.API, svc *Service) {
 		Method:      http.MethodGet,
 		Path:        platform.APIBase + "/instagram/{person}",
 		Summary:     "Get an Instagram feed",
-		Description: "Returns the cached recent posts of one of the couple's Instagram accounts " +
-			"(Instagram API with Instagram Login). While no token is configured, " +
-			"configured=false and posts is empty — never an error.",
+		Description: "Returns one person's imported Instagram posts, served from the site's own " +
+			"storage (one-shot operator import — the site never calls Instagram at runtime). " +
+			"Before any import, configured=false and posts is empty — never an error.",
 		Tags: []string{"instagram"},
 	}, func(ctx context.Context, in *FeedInput) (*FeedOutput, error) {
 		out := &FeedOutput{}
 		out.Body.Posts = []PostView{}
-		if !svc.Configured(in.Person) {
-			return out, nil
-		}
-		out.Body.Configured = true
-		posts, err := svc.Posts(ctx, in.Person)
+		posts, exists, err := svc.Posts(ctx, in.Person)
 		if err != nil {
-			slog.WarnContext(ctx, "instagram feed fetch failed", "person", in.Person, "error", err)
+			slog.WarnContext(ctx, "instagram manifest fetch failed", "person", in.Person, "error", err)
 		}
+		out.Body.Configured = exists
 		if len(posts) > 0 {
 			out.Body.Posts = posts
 		}

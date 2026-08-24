@@ -344,7 +344,7 @@ components:
           readOnly: true
           type: string
         configured:
-          description: False while this person's Instagram token is not set up — the site links to the profile instead.
+          description: False until an Instagram import has been run for this person — the site links to the profile instead.
           type: boolean
         posts:
           items:
@@ -1166,6 +1166,7 @@ components:
             - IMAGE
           type: string
         media_url:
+          description: Display image, served from the site's own bucket.
           format: uri
           type: string
         permalink:
@@ -2119,7 +2120,7 @@ paths:
         - guests
   /api/v1/instagram/{person}:
     get:
-      description: Returns the cached recent posts of one of the couple's Instagram accounts (Instagram API with Instagram Login). While no token is configured, configured=false and posts is empty — never an error.
+      description: Returns one person's imported Instagram posts, served from the site's own storage (one-shot operator import — the site never calls Instagram at runtime). Before any import, configured=false and posts is empty — never an error.
       operationId: get-instagram-feed
       parameters:
         - description: "Whose feed: the bride's or the groom's."

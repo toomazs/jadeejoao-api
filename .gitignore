@@ -1,6 +1,11 @@
 # Local environment (never commit credentials)
 .env
 
+# Instagram import tooling (scripts/instagram_import.py): local venv and the
+# logged-in session — both carry credentials, never commit.
+scripts/.venv/
+scripts/.instagram-session.json
+
 # Build artifacts
 /bin/
 *.exe
