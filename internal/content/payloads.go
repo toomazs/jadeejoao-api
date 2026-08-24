@@ -44,10 +44,18 @@ type SectionBase struct {
 	Images []string `json:"images,omitempty" doc:"Public CDN image URLs."`
 }
 
-// ProgrammeItem is one timed entry of the ceremony programme.
+// ProgrammeIcons is the closed set of emblems a programme moment may carry.
+// The site draws them; the couple only picks a name — so the schedule stays
+// fully editable in the admin without touching the front-end.
+const ProgrammeIcons = "guests,ceremony,vows,rings,party,music,toast,cake,photo,flowers"
+
+// ProgrammeItem is one timed entry of the ceremony programme. Moments that
+// anchor the day carry an icon; the steps between them leave it empty and
+// render as quiet marks.
 type ProgrammeItem struct {
 	Time  string `json:"time" example:"15:00" doc:"Local time (America/Sao_Paulo), HH:MM."`
 	Label string `json:"label" example:"Recepção dos convidados"`
+	Icon  string `json:"icon,omitempty" enum:"guests,ceremony,vows,rings,party,music,toast,cake,photo,flowers" doc:"Emblem for a moment that anchors the day; empty renders a plain mark."`
 }
 
 // Lodging is one suggested hotel/inn entry of the stay section.
@@ -99,7 +107,7 @@ type StoryMoment struct {
 // AnnouncementPayload is the daughter's announcement that closes the story:
 // one photograph and the line she gets to say.
 type AnnouncementPayload struct {
-	Label    string `json:"label" example:"Mamãe e papai vão se casar!" doc:"The caption written on the frame."`
+	Label    string `json:"label" example:"Mamãe e papai **vão se casar!**" doc:"The caption written on the frame; **double asterisks** set a phrase in bold."`
 	ImageURL string `json:"image_url" format:"uri" doc:"Public CDN photo."`
 	// EyeX/EyeY mark, in percent of the image, the point the sparkles leave
 	// from — the winking eye. Kept as data so a new photo only needs new

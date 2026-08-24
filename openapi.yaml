@@ -39,9 +39,9 @@ components:
           format: uri
           type: string
         label:
-          description: The caption written on the frame.
+          description: The caption written on the frame; **double asterisks** set a phrase in bold.
           examples:
-            - Mamãe e papai vão se casar!
+            - Mamãe e papai **vão se casar!**
           type: string
       required:
         - label
@@ -1233,6 +1233,20 @@ components:
     ProgrammeItem:
       additionalProperties: false
       properties:
+        icon:
+          description: Emblem for a moment that anchors the day; empty renders a plain mark.
+          enum:
+            - guests
+            - ceremony
+            - vows
+            - rings
+            - party
+            - music
+            - toast
+            - cake
+            - photo
+            - flowers
+          type: string
         label:
           examples:
             - Recepção dos convidados
