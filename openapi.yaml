@@ -1100,6 +1100,19 @@ components:
           type:
             - array
             - "null"
+        letter_from_bride:
+          description: Jade's letter to João, shown inside the album.
+          type: string
+        letter_from_groom:
+          description: João's letter to Jade, shown inside the album.
+          type: string
+        moments:
+          description: Chronological photo timeline rendered as instax frames.
+          items:
+            $ref: "#/components/schemas/StoryMoment"
+          type:
+            - array
+            - "null"
         title:
           description: Section heading shown on the site.
           type: string
@@ -1374,6 +1387,27 @@ components:
           type: string
       required:
         - title
+      type: object
+    StoryMoment:
+      additionalProperties: false
+      properties:
+        date:
+          description: Freeform date line under the caption.
+          examples:
+            - 12 de maio de 2020
+          type: string
+        image_url:
+          description: Public CDN photo.
+          format: uri
+          type: string
+        label:
+          description: Caption written on the frame.
+          examples:
+            - Jade e Francisca
+          type: string
+      required:
+        - label
+        - image_url
       type: object
     SuggestOutputBody:
       additionalProperties: false

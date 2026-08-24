@@ -87,12 +87,25 @@ type PersonPayload struct {
 	Instagram string `json:"instagram,omitempty" example:"xadenascimento" doc:"Instagram handle, without the @."`
 }
 
-// OurStoryPayload is the couple's story section: the shared intro plus one
-// film chapter per person.
+// StoryMoment is one instax frame of the couple's photo timeline: the photo,
+// the couple's handwritten-style caption, and an optional freeform date
+// ("12 de maio de 2020", "2021").
+type StoryMoment struct {
+	Label    string `json:"label" example:"Jade e Francisca" doc:"Caption written on the frame."`
+	Date     string `json:"date,omitempty" example:"12 de maio de 2020" doc:"Freeform date line under the caption."`
+	ImageURL string `json:"image_url" format:"uri" doc:"Public CDN photo."`
+}
+
+// OurStoryPayload is the couple's story section: one film chapter per person,
+// the instax photo album with the letters they wrote each other, and the
+// invitation sentence (body).
 type OurStoryPayload struct {
 	SectionBase
-	Bride *PersonPayload `json:"bride,omitempty"`
-	Groom *PersonPayload `json:"groom,omitempty"`
+	Bride           *PersonPayload `json:"bride,omitempty"`
+	Groom           *PersonPayload `json:"groom,omitempty"`
+	Moments         []StoryMoment  `json:"moments,omitempty" doc:"Chronological photo timeline rendered as instax frames."`
+	LetterFromGroom string         `json:"letter_from_groom,omitempty" doc:"João's letter to Jade, shown inside the album."`
+	LetterFromBride string         `json:"letter_from_bride,omitempty" doc:"Jade's letter to João, shown inside the album."`
 }
 
 // BigDayPayload describes the venue and the timed programme.
