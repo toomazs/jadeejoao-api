@@ -405,6 +405,10 @@ components:
           description: Embeddable map for the inline frame.
           format: uri
           type: string
+        maps_logo_url:
+          description: Google Maps mark for the navigation card.
+          format: uri
+          type: string
         maps_url:
           description: Deep link that opens Google Maps at the venue.
           format: uri
@@ -413,6 +417,10 @@ components:
           type: string
         title:
           description: Section heading shown on the site.
+          type: string
+        waze_logo_url:
+          description: Waze mark for the navigation card.
+          format: uri
           type: string
         waze_url:
           description: Deep link that opens Waze at the venue.
@@ -841,12 +849,19 @@ components:
         link:
           format: uri
           type: string
+        logo_url:
+          description: Brand mark, for platforms that have one.
+          format: uri
+          type: string
         name:
           examples:
             - Pousada Jardim
           type: string
         notes:
           type: string
+        platform:
+          description: "True for a search platform (Booking, Airbnb): rendered as a compact branded card, not a hotel entry."
+          type: boolean
         shuttle_served:
           description: Whether the wedding shuttle (translado) serves this lodging.
           type: boolean

@@ -58,12 +58,15 @@ type ProgrammeItem struct {
 	Icon  string `json:"icon,omitempty" enum:"guests,ceremony,vows,rings,party,music,toast,cake,photo,flowers" doc:"Emblem for a moment that anchors the day; empty renders a plain mark."`
 }
 
-// Lodging is one suggested hotel/inn entry of the stay section.
+// Lodging is one place to sleep: a hotel the couple suggests, or a booking
+// platform where the guest can search for themselves.
 type Lodging struct {
 	Name          string `json:"name" example:"Pousada Jardim"`
 	Area          string `json:"area,omitempty" example:"Centro"`
 	Link          string `json:"link,omitempty" format:"uri"`
 	Notes         string `json:"notes,omitempty"`
+	LogoURL       string `json:"logo_url,omitempty" format:"uri" doc:"Brand mark, for platforms that have one."`
+	Platform      bool   `json:"platform,omitempty" doc:"True for a search platform (Booking, Airbnb): rendered as a compact branded card, not a hotel entry."`
 	ShuttleServed bool   `json:"shuttle_served" doc:"Whether the wedding shuttle (translado) serves this lodging."`
 }
 
@@ -151,7 +154,9 @@ type GettingTherePayload struct {
 	Address      string `json:"address" example:"Rua Piraju, 306 – Jardim Paulista, Atibaia – SP, 12947-321"`
 	MapEmbedURL  string `json:"map_embed_url,omitempty" format:"uri" doc:"Embeddable map for the inline frame."`
 	MapsURL      string `json:"maps_url,omitempty" format:"uri" doc:"Deep link that opens Google Maps at the venue."`
+	MapsLogoURL  string `json:"maps_logo_url,omitempty" format:"uri" doc:"Google Maps mark for the navigation card."`
 	WazeURL      string `json:"waze_url,omitempty" format:"uri" doc:"Deep link that opens Waze at the venue."`
+	WazeLogoURL  string `json:"waze_logo_url,omitempty" format:"uri" doc:"Waze mark for the navigation card."`
 	ParkingNotes string `json:"parking_notes,omitempty"`
 }
 
