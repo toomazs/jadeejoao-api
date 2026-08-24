@@ -19,6 +19,34 @@ components:
       required:
         - gifts
       type: object
+    AnnouncementPayload:
+      additionalProperties: false
+      properties:
+        eye_x:
+          description: Horizontal position of the wink, in percent.
+          format: double
+          maximum: 100
+          minimum: 0
+          type: number
+        eye_y:
+          description: Vertical position of the wink, in percent.
+          format: double
+          maximum: 100
+          minimum: 0
+          type: number
+        image_url:
+          description: Public CDN photo.
+          format: uri
+          type: string
+        label:
+          description: The caption written on the frame.
+          examples:
+            - Mamãe e papai vão se casar!
+          type: string
+      required:
+        - label
+        - image_url
+      type: object
     BigDayPayload:
       additionalProperties: false
       properties:
@@ -1086,6 +1114,8 @@ components:
     OurStoryPayload:
       additionalProperties: false
       properties:
+        announcement:
+          $ref: "#/components/schemas/AnnouncementPayload"
         body:
           description: Rich text as Markdown.
           type: string

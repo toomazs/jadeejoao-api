@@ -96,16 +96,29 @@ type StoryMoment struct {
 	ImageURL string `json:"image_url" format:"uri" doc:"Public CDN photo."`
 }
 
+// AnnouncementPayload is the daughter's announcement that closes the story:
+// one photograph and the line she gets to say.
+type AnnouncementPayload struct {
+	Label    string `json:"label" example:"Mamãe e papai vão se casar!" doc:"The caption written on the frame."`
+	ImageURL string `json:"image_url" format:"uri" doc:"Public CDN photo."`
+	// EyeX/EyeY mark, in percent of the image, the point the sparkles leave
+	// from — the winking eye. Kept as data so a new photo only needs new
+	// numbers, never a code change.
+	EyeX float64 `json:"eye_x,omitempty" minimum:"0" maximum:"100" doc:"Horizontal position of the wink, in percent."`
+	EyeY float64 `json:"eye_y,omitempty" minimum:"0" maximum:"100" doc:"Vertical position of the wink, in percent."`
+}
+
 // OurStoryPayload is the couple's story section: one film chapter per person,
 // the instax photo album with the letters they wrote each other, and the
 // invitation sentence (body).
 type OurStoryPayload struct {
 	SectionBase
-	Bride           *PersonPayload `json:"bride,omitempty"`
-	Groom           *PersonPayload `json:"groom,omitempty"`
-	Moments         []StoryMoment  `json:"moments,omitempty" doc:"Chronological photo timeline rendered as instax frames."`
-	LetterFromGroom string         `json:"letter_from_groom,omitempty" doc:"João's letter to Jade, shown inside the album."`
-	LetterFromBride string         `json:"letter_from_bride,omitempty" doc:"Jade's letter to João, shown inside the album."`
+	Bride           *PersonPayload       `json:"bride,omitempty"`
+	Groom           *PersonPayload       `json:"groom,omitempty"`
+	Moments         []StoryMoment        `json:"moments,omitempty" doc:"Chronological photo timeline rendered as instax frames."`
+	Announcement    *AnnouncementPayload `json:"announcement,omitempty"`
+	LetterFromGroom string               `json:"letter_from_groom,omitempty" doc:"João's letter to Jade, shown inside the album."`
+	LetterFromBride string               `json:"letter_from_bride,omitempty" doc:"Jade's letter to João, shown inside the album."`
 }
 
 // BigDayPayload describes the venue and the timed programme.
