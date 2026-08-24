@@ -143,11 +143,15 @@ type RSVPPayload struct {
 	Deadline string `json:"deadline" format:"date" example:"2027-07-07" doc:"Last day (inclusive, America/Sao_Paulo) to submit or change RSVPs. Enforced server-side."`
 }
 
-// GettingTherePayload holds address, map, and parking guidance.
+// GettingTherePayload holds address, map, and parking guidance. The two
+// deep links open the guest's own navigation app already pointed at the
+// house — kept as data so a move only needs new links.
 type GettingTherePayload struct {
 	SectionBase
 	Address      string `json:"address" example:"Rua Piraju, 306 – Jardim Paulista, Atibaia – SP, 12947-321"`
-	MapEmbedURL  string `json:"map_embed_url,omitempty" format:"uri"`
+	MapEmbedURL  string `json:"map_embed_url,omitempty" format:"uri" doc:"Embeddable map for the inline frame."`
+	MapsURL      string `json:"maps_url,omitempty" format:"uri" doc:"Deep link that opens Google Maps at the venue."`
+	WazeURL      string `json:"waze_url,omitempty" format:"uri" doc:"Deep link that opens Waze at the venue."`
 	ParkingNotes string `json:"parking_notes,omitempty"`
 }
 

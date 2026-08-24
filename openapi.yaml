@@ -402,12 +402,21 @@ components:
             - array
             - "null"
         map_embed_url:
+          description: Embeddable map for the inline frame.
+          format: uri
+          type: string
+        maps_url:
+          description: Deep link that opens Google Maps at the venue.
           format: uri
           type: string
         parking_notes:
           type: string
         title:
           description: Section heading shown on the site.
+          type: string
+        waze_url:
+          description: Deep link that opens Waze at the venue.
+          format: uri
           type: string
       required:
         - address
