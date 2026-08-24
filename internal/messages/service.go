@@ -136,7 +136,7 @@ func buildMessageEmail(message Message) (subject, body string) {
 		Kicker:    "Recado aos noivos",
 		Headline:  fmt.Sprintf("%s deixou um recado!", message.AuthorName),
 		Quote:     message.Body,
-		Footnote:  "O recado entra como pendente — aprove no painel para publicá-lo.",
+		Footnote:  "Guardado com carinho — vocês veem todos os recados no painel.",
 	})
 	return subject, body
 }
