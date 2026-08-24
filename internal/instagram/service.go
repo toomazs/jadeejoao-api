@@ -29,6 +29,8 @@ const (
 	// Misses and failures are retried sooner: right after the first import
 	// the feed should appear quickly.
 	missTTL = 2 * time.Minute
+	// Ceiling for one manifest read, independent of the caller's deadline.
+	fetchTimeout = 10 * time.Second
 )
 
 // PostView is one imported post, shaped for the public site. JSON tags match
@@ -89,7 +91,14 @@ func (s *Service) Posts(ctx context.Context, person string) ([]PostView, bool, e
 		return entry.posts, entry.exists, nil
 	}
 
-	posts, exists, err := s.fetch(ctx, person)
+	// The manifest is shared by every visitor, so its fetch must outlive the
+	// request that happened to trigger it. A guest closing the tab (or a dev
+	// StrictMode remount) cancels their own context — without this, that
+	// cancellation would be cached as "no feed" for everyone until missTTL.
+	fetchCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), fetchTimeout)
+	defer cancel()
+
+	posts, exists, err := s.fetch(fetchCtx, person)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if err != nil {

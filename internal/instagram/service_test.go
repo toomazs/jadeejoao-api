@@ -115,3 +115,35 @@ func TestNilAndUnconfiguredService(t *testing.T) {
 		t.Fatal("empty base must answer empty and not configured")
 	}
 }
+
+// A guest closing the tab mid-request (or a dev StrictMode remount) cancels
+// that request's context. The manifest is shared, so the read must finish and
+// cache the real feed — never the cancellation, which used to hide the grid
+// from everyone for missTTL.
+func TestCallerCancellationDoesNotPoisonTheCache(t *testing.T) {
+	var calls atomic.Int32
+	s := newTestService(t, func(w http.ResponseWriter, _ *http.Request) {
+		calls.Add(1)
+		_, _ = w.Write([]byte(manifestJSON))
+	})
+
+	cancelled, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	posts, exists, err := s.Posts(cancelled, PersonBride)
+	if err != nil {
+		t.Fatalf("cancelled caller should still get the feed: %v", err)
+	}
+	if !exists || len(posts) != 2 {
+		t.Fatalf("got exists=%v posts=%d, want the real feed", exists, len(posts))
+	}
+
+	// And the next visitor is served from a healthy cache, not a poisoned one.
+	posts, exists, err = s.Posts(context.Background(), PersonBride)
+	if err != nil || !exists || len(posts) != 2 {
+		t.Fatalf("second read: posts=%d exists=%v err=%v", len(posts), exists, err)
+	}
+	if calls.Load() != 1 {
+		t.Fatalf("expected the first read to have cached, got %d fetches", calls.Load())
+	}
+}
