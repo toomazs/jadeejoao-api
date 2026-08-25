@@ -58,15 +58,32 @@ type RSVPInput struct {
 	}
 }
 
-// CompanionInput adds one more person to an existing invitation.
+// CompanionInput gathers one more invited person into an existing invitation.
+// It takes an id, never a name: the guest picks from the couple's list.
 type CompanionInput struct {
 	GroupID string `path:"group_id" format:"uuid"`
 	Body    struct {
-		FullName  string  `json:"full_name" minLength:"2" maxLength:"120" example:"Maria Silva" doc:"Nome e sobrenome de quem vem junto."`
-		Attending string  `json:"attending" enum:"yes,no" doc:"Se essa pessoa vai ao casamento."`
-		Category  *string `json:"category,omitempty" enum:"adult,teen,child,baby,elderly" doc:"Faixa da pessoa, para a conta dos noivos. Omitido vira adulto."`
-		Gender    *string `json:"gender,omitempty" enum:"female,male" doc:"Opcional; serve só à organização do casal."`
+		GuestID string `json:"guest_id" format:"uuid" doc:"Quem vem junto, escolhido na busca — precisa já estar na lista dos noivos."`
 	}
+}
+
+// CompanionSearchInput is the typeahead over people this invitation may gather.
+type CompanionSearchInput struct {
+	GroupID string `path:"group_id" format:"uuid"`
+	Q       string `query:"q" required:"true" minLength:"3" maxLength:"100" example:"mar" doc:"Começo do nome de quem vem junto; a busca ignora acentos e maiúsculas."`
+}
+
+// CompanionOptionsOutput lists people the invitation may gather in.
+type CompanionOptionsOutput struct {
+	Body struct {
+		Options []CompanionOptionView `json:"options" doc:"No máximo 8, em ordem alfabética."`
+	}
+}
+
+// CompanionOptionView is one pickable person.
+type CompanionOptionView struct {
+	GuestID  string `json:"guest_id" format:"uuid"`
+	FullName string `json:"full_name" example:"Maria Silva"`
 }
 
 // RemoveCompanionInput takes back someone the guest added.
@@ -149,11 +166,35 @@ func RegisterPublic(api huma.API, svc *Service) {
 	})
 
 	huma.Register(api, huma.Operation{
+		OperationID: "search-companions",
+		Method:      http.MethodGet,
+		Path:        platform.APIBase + "/guests/{group_id}/companions/available",
+		Summary:     "Search people to bring along",
+		Description: "Names this invitation may gather in: guests the couple already invited who are still alone in their own invitation. Someone heading an invitation that holds other people is excluded — moving them would orphan the rest.",
+		Tags:        []string{"guests"},
+	}, func(ctx context.Context, in *CompanionSearchInput) (*CompanionOptionsOutput, error) {
+		groupID, err := uuid.Parse(in.GroupID)
+		if err != nil {
+			return nil, huma.Error422UnprocessableEntity("Identificador de grupo inválido.")
+		}
+		options, err := svc.SuggestCompanions(ctx, groupID, in.Q)
+		if err != nil {
+			return nil, mapGuestErr(err)
+		}
+		out := &CompanionOptionsOutput{}
+		out.Body.Options = make([]CompanionOptionView, len(options))
+		for i, o := range options {
+			out.Body.Options[i] = CompanionOptionView{GuestID: o.ID.String(), FullName: o.FullName}
+		}
+		return out, nil
+	})
+
+	huma.Register(api, huma.Operation{
 		OperationID:   "add-companion",
 		Method:        http.MethodPost,
 		Path:          platform.APIBase + "/guests/{group_id}/companions",
 		Summary:       "Add a companion",
-		Description:   fmt.Sprintf("Adds one more person to an existing invitation and records their answer in the same move. Capped at %d per invitation. Rejected after the RSVP deadline. Returns the whole group, so the caller can render the new list without refetching.", MaxCompanionsPerGroup),
+		Description:   fmt.Sprintf("Gathers one more ALREADY-INVITED person into this invitation, by id. The guest never types a name — the list is the couple's budget. Only people still alone in their own invitation can be gathered; capped at %d per invitation, rejected after the RSVP deadline. Returns the whole group.", MaxCompanionsPerGroup),
 		Tags:          []string{"guests"},
 		DefaultStatus: http.StatusCreated,
 	}, func(ctx context.Context, in *CompanionInput) (*GroupOutput, error) {
@@ -161,12 +202,11 @@ func RegisterPublic(api huma.API, svc *Service) {
 		if err != nil {
 			return nil, huma.Error422UnprocessableEntity("Identificador de grupo inválido.")
 		}
-		group, members, err := svc.AddCompanion(ctx, groupID, NewCompanion{
-			FullName:  in.Body.FullName,
-			Attending: in.Body.Attending,
-			Category:  in.Body.Category,
-			Gender:    in.Body.Gender,
-		})
+		guestID, err := uuid.Parse(in.Body.GuestID)
+		if err != nil {
+			return nil, huma.Error422UnprocessableEntity("Escolha alguém da lista para vir com você.")
+		}
+		group, members, err := svc.AddCompanion(ctx, groupID, guestID)
 		if err != nil {
 			return nil, mapGuestErr(err)
 		}
@@ -177,8 +217,8 @@ func RegisterPublic(api huma.API, svc *Service) {
 		OperationID: "remove-companion",
 		Method:      http.MethodDelete,
 		Path:        platform.APIBase + "/guests/{group_id}/companions/{guest_id}",
-		Summary:     "Remove a companion",
-		Description: "Takes back someone the guest added to their own invitation. Refuses for anyone the couple invited: a guest can undo their own additions, never edit the couple's list. Rejected after the RSVP deadline. Returns the remaining group.",
+		Summary:     "Send a companion back",
+		Description: "Sends someone back to their own invitation — they stay invited, they just leave this group. Refuses for anyone the couple placed here: a guest can undo their own gathering, never edit the couple's list. Rejected after the RSVP deadline. Returns the remaining group.",
 		Tags:        []string{"guests"},
 	}, func(ctx context.Context, in *RemoveCompanionInput) (*GroupOutput, error) {
 		groupID, err := uuid.Parse(in.GroupID)
@@ -227,14 +267,12 @@ func mapGuestErr(err error) error {
 		return huma.Error422UnprocessableEntity("Resposta inválida: confirme com \"yes\" ou \"no\" para cada convidado.")
 	case errors.Is(err, ErrCompanionLimit):
 		return huma.Error409Conflict(fmt.Sprintf("Você já adicionou %d acompanhantes, que é o limite deste convite. Se precisar levar mais alguém, fale com os noivos.", MaxCompanionsPerGroup))
-	case errors.Is(err, ErrNameTaken):
-		return huma.Error409Conflict("Esse nome já está na lista de convidados. Se for outra pessoa, adicione o sobrenome para diferenciar.")
-	case errors.Is(err, ErrInvalidName):
-		return huma.Error422UnprocessableEntity("Digite o nome e o sobrenome de quem vem com você.")
-	case errors.Is(err, ErrInvalidCategory):
-		return huma.Error422UnprocessableEntity("Opção inválida para essa pessoa. Recarregue a página e tente de novo.")
+	case errors.Is(err, ErrGuestUnavailable):
+		return huma.Error409Conflict("Essa pessoa já está no convite de outra pessoa. Fale com os noivos para ajustar.")
+	case errors.Is(err, ErrAlreadyOnInvitation):
+		return huma.Error409Conflict("Essa pessoa já está no seu convite.")
 	case errors.Is(err, ErrNotRemovable):
-		return huma.Error403Forbidden("Você só pode tirar do convite quem você mesmo adicionou. Para os demais, fale com os noivos.")
+		return huma.Error403Forbidden("Você só pode tirar do convite quem você mesmo trouxe. Para os demais, fale com os noivos.")
 	default:
 		slog.Error("guest request failed", "error", err)
 		return huma.Error500InternalServerError("Não conseguimos processar seu pedido agora. Tente novamente em instantes.")

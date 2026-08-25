@@ -7,7 +7,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/jadeejoao/jadeejoao-api/internal/guests/guestsdb"
@@ -95,76 +94,120 @@ func (r *pgRepo) ListAllGuests(ctx context.Context) (map[uuid.UUID][]Member, err
 
 // UpdateAttendances applies every answer in one transaction; any update that
 // does not match exactly one guest of the group aborts the whole submission.
-// AddCompanion inserts one guest the primary brought along, refusing once the
-// invitation has spent its allowance.
+// SuggestAvailableCompanions lists guests this invitation may gather in.
+func (r *pgRepo) SuggestAvailableCompanions(ctx context.Context, groupID uuid.UUID, prefix string) ([]CompanionOption, error) {
+	rows, err := r.q.SuggestAvailableCompanions(ctx, guestsdb.SuggestAvailableCompanionsParams{
+		Prefix: prefix, GroupID: groupID,
+	})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]CompanionOption, len(rows))
+	for i, row := range rows {
+		out[i] = CompanionOption{ID: row.ID, FullName: row.FullName}
+	}
+	return out, nil
+}
+
+// AddCompanion moves someone the couple already invited into this invitation,
+// refusing once it has spent its allowance.
 //
-// The count and the insert share a transaction that holds a row lock on the
-// group, because the cheap version of this — count, then insert — lets two
-// phones open the same invitation and each be told there is one slot left.
-func (r *pgRepo) AddCompanion(ctx context.Context, groupID uuid.UUID, c NewCompanion) (Member, error) {
+// Everything shares one transaction holding a row lock on the destination
+// group. The cheap version — check, then move — lets two phones open the same
+// invitation and each be told there is one slot left; worse, it lets two
+// invitations claim the same person at the same moment.
+func (r *pgRepo) AddCompanion(ctx context.Context, groupID, guestID uuid.UUID) error {
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
-		return Member{}, err
+		return err
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck // no-op after commit
 
 	q := r.q.WithTx(tx)
 	if _, err := q.LockGroupForCompanion(ctx, groupID); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return Member{}, ErrNotFound
+			return ErrNotFound
 		}
-		return Member{}, err
+		return err
 	}
 	already, err := q.CountGroupCompanions(ctx, groupID)
 	if err != nil {
-		return Member{}, err
+		return err
 	}
 	if already >= MaxCompanionsPerGroup {
-		return Member{}, ErrCompanionLimit
+		return ErrCompanionLimit
 	}
 
-	inserted, err := q.InsertCompanion(ctx, guestsdb.InsertCompanionParams{
-		GroupID:        groupID,
-		FullName:       c.FullName,
-		NormalizedName: Normalize(c.FullName),
-		Category:       c.Category,
-		Gender:         c.Gender,
-		Attending:      c.Attending,
-	})
+	guest, err := q.GetGuestWithGroupSize(ctx, guestID)
 	if err != nil {
-		// normalized_name is globally unique: the name is already on the list,
-		// which is a message for the guest, not a 500.
-		var pgErr *pgconn.PgError
-		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
-			return Member{}, ErrNameTaken
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrNotFound
 		}
-		return Member{}, err
+		return err
 	}
-	if err := tx.Commit(ctx); err != nil {
-		return Member{}, err
+	if guest.GroupID == groupID {
+		return ErrAlreadyOnInvitation
 	}
-	return Member{
-		ID:        inserted.ID,
-		FullName:  inserted.FullName,
-		IsPrimary: inserted.IsPrimary,
-		Category:  inserted.Category,
-		Attending: inserted.Attending,
-	}, nil
-}
+	// Heading an invitation that holds other people means moving would orphan
+	// the rest of that family. Read inside the transaction so a concurrent
+	// move cannot make this stale between the check and the write.
+	if guest.GroupSize > 1 {
+		return ErrGuestUnavailable
+	}
 
-// RemoveCompanion deletes one guest-added row. A miss means the id belongs to
-// someone the couple invited (or to another invitation entirely), which is a
-// refusal rather than a not-found: the row exists, it is just not the guest's
-// to remove.
-func (r *pgRepo) RemoveCompanion(ctx context.Context, groupID, guestID uuid.UUID) error {
-	affected, err := r.q.DeleteCompanion(ctx, guestsdb.DeleteCompanionParams{ID: guestID, GroupID: groupID})
+	from := guest.GroupID
+	moved, err := q.MoveGuestToGroup(ctx, guestsdb.MoveGuestToGroupParams{ID: guestID, GroupID: groupID})
 	if err != nil {
 		return err
 	}
-	if affected == 0 {
+	if moved != 1 {
+		return ErrNotFound
+	}
+	// Their old invitation now holds nobody. Leaving it behind would litter
+	// the couple's dashboard with empty rows.
+	if err := q.DeleteGroupIfEmpty(ctx, from); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+// RemoveCompanion sends someone back to the invitation they arrived with,
+// rather than deleting them: they are still invited, just no longer part of
+// this group. A miss means the id belongs to someone the couple placed here
+// (or to another invitation), which is a refusal, not a not-found.
+func (r *pgRepo) RemoveCompanion(ctx context.Context, groupID, guestID uuid.UUID) error {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck // no-op after commit
+
+	q := r.q.WithTx(tx)
+	guest, err := q.GetGuestWithGroupSize(ctx, guestID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrNotRemovable
+		}
+		return err
+	}
+
+	// The invitation is recreated under their own name — the same label the
+	// import gave it — so leaving and being re-added round-trips exactly.
+	home, err := q.InsertGuestGroup(ctx, guest.FullName)
+	if err != nil {
+		return err
+	}
+	restored, err := q.RestoreCompanionToOwnGroup(ctx, guestsdb.RestoreCompanionToOwnGroupParams{
+		ID: guestID, GroupID: groupID, NewGroupID: home,
+	})
+	if err != nil {
+		return err
+	}
+	if restored == 0 {
+		// Rolls back the group created just above.
 		return ErrNotRemovable
 	}
-	return nil
+	return tx.Commit(ctx)
 }
 
 func (r *pgRepo) UpdateAttendances(ctx context.Context, groupID uuid.UUID, updates []AttendanceUpdate) error {

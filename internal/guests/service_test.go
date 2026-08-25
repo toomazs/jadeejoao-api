@@ -18,10 +18,19 @@ type fakeRepo struct {
 	group   Group
 	members []Member
 	applied []AttendanceUpdate
-	// companions counts what AddCompanion inserted, and added remembers which
-	// rows those were — together they stand in for the added_by_guest column.
+	// companions counts who was gathered in, and added remembers which rows
+	// those were — together they stand in for the added_by_guest column.
 	companions int
 	added      map[uuid.UUID]bool
+	// elsewhere models the rest of the couple's list: everyone NOT on this
+	// invitation, with how many people share their own invitation. Size > 1
+	// means they head a family and cannot be moved.
+	elsewhere map[uuid.UUID]outsider
+}
+
+type outsider struct {
+	name      string
+	groupSize int
 }
 
 func (f *fakeRepo) FindGuestByNormalizedName(_ context.Context, normalized string) (Member, uuid.UUID, error) {
@@ -33,26 +42,48 @@ func (f *fakeRepo) FindGuestByNormalizedName(_ context.Context, normalized strin
 	return Member{}, uuid.Nil, ErrNotFound
 }
 
-func (f *fakeRepo) AddCompanion(_ context.Context, groupID uuid.UUID, c NewCompanion) (Member, error) {
+func (f *fakeRepo) SuggestAvailableCompanions(_ context.Context, groupID uuid.UUID, prefix string) ([]CompanionOption, error) {
 	if groupID != f.group.ID {
-		return Member{}, ErrNotFound
+		return nil, nil
 	}
-	if f.companions >= MaxCompanionsPerGroup {
-		return Member{}, ErrCompanionLimit
-	}
-	for _, m := range f.members {
-		if Normalize(m.FullName) == Normalize(c.FullName) {
-			return Member{}, ErrNameTaken
+	var out []CompanionOption
+	for id, o := range f.elsewhere {
+		if o.groupSize == 1 && strings.HasPrefix(Normalize(o.name), prefix) {
+			out = append(out, CompanionOption{ID: id, FullName: o.name})
 		}
 	}
-	added := Member{ID: uuid.New(), FullName: c.FullName, Attending: c.Attending, AddedByGuest: true}
-	f.members = append(f.members, added)
+	return out, nil
+}
+
+func (f *fakeRepo) AddCompanion(_ context.Context, groupID, guestID uuid.UUID) error {
+	if groupID != f.group.ID {
+		return ErrNotFound
+	}
+	if f.companions >= MaxCompanionsPerGroup {
+		return ErrCompanionLimit
+	}
+	for _, m := range f.members {
+		if m.ID == guestID {
+			return ErrAlreadyOnInvitation
+		}
+	}
+	o, ok := f.elsewhere[guestID]
+	if !ok {
+		return ErrNotFound
+	}
+	if o.groupSize > 1 {
+		return ErrGuestUnavailable
+	}
+	delete(f.elsewhere, guestID)
+	f.members = append(f.members, Member{
+		ID: guestID, FullName: o.name, Attending: "pending", AddedByGuest: true,
+	})
 	f.companions++
 	if f.added == nil {
 		f.added = map[uuid.UUID]bool{}
 	}
-	f.added[added.ID] = true
-	return added, nil
+	f.added[guestID] = true
+	return nil
 }
 
 func (f *fakeRepo) RemoveCompanion(_ context.Context, groupID, guestID uuid.UUID) error {
@@ -60,17 +91,18 @@ func (f *fakeRepo) RemoveCompanion(_ context.Context, groupID, guestID uuid.UUID
 		return ErrNotRemovable
 	}
 	for i, m := range f.members {
-		if m.ID == guestID {
-			// Only rows AddCompanion created; the fixture's own members stand
-			// in for the names the couple typed and must refuse.
-			if !f.added[guestID] {
-				return ErrNotRemovable
-			}
-			f.members = append(f.members[:i], f.members[i+1:]...)
-			delete(f.added, guestID)
-			f.companions--
-			return nil
+		if m.ID != guestID {
+			continue
 		}
+		if !f.added[guestID] {
+			return ErrNotRemovable
+		}
+		f.members = append(f.members[:i], f.members[i+1:]...)
+		delete(f.added, guestID)
+		f.companions--
+		// Back to their own invitation, alone — pickable again.
+		f.elsewhere[guestID] = outsider{name: m.FullName, groupSize: 1}
+		return nil
 	}
 	return ErrNotRemovable
 }
@@ -157,8 +189,40 @@ func newFixture() (*fakeRepo, uuid.UUID, uuid.UUID) {
 			{ID: g1, FullName: "Eduardo Silva", IsPrimary: true, Attending: "pending"},
 			{ID: g2, FullName: "Ana Clara Silva", Attending: "pending"},
 		},
+		elsewhere: elsewhereFixture(),
 	}
 	return repo, g1, g2
+}
+
+// The couple's list beyond this invitation. soloGuest is alone in their own
+// invitation and may be gathered in; familyHead heads an invitation of four
+// and must never be movable — taking them would orphan the other three.
+var (
+	soloGuest  = uuid.New()
+	familyHead = uuid.New()
+)
+
+func elsewhereFixture() map[uuid.UUID]outsider {
+	m := map[uuid.UUID]outsider{
+		soloGuest:  {name: "Marina Prado", groupSize: 1},
+		familyHead: {name: "Ronaldo Nascimento", groupSize: 4},
+	}
+	// Spares, so a test can push past the per-invitation ceiling.
+	for i := 0; i < MaxCompanionsPerGroup+2; i++ {
+		m[uuid.New()] = outsider{name: fmt.Sprintf("Sozinho %02d", i), groupSize: 1}
+	}
+	return m
+}
+
+// availableIDs lists everyone the fake would let this invitation gather in.
+func (f *fakeRepo) availableIDs() []uuid.UUID {
+	var out []uuid.UUID
+	for id, o := range f.elsewhere {
+		if o.groupSize == 1 {
+			out = append(out, id)
+		}
+	}
+	return out
 }
 
 func at(day string) func() time.Time {
@@ -479,132 +543,150 @@ func TestSubmitRSVPMemberCoverage(t *testing.T) {
 	}
 }
 
-func TestAddCompanionJoinsTheInvitationAndAnswers(t *testing.T) {
+func companionSvc(repo *fakeRepo) *Service {
+	return NewService(repo, fixedDeadline("2027-07-07"), at("2026-08-24 12:00"), nil)
+}
+
+func TestCompanionSearchOnlyOffersPeopleAlreadyInvited(t *testing.T) {
 	repo, _, _ := newFixture()
-	svc := NewService(repo, fixedDeadline("2027-07-07"), at("2026-08-24 12:00"), nil)
+	svc := companionSvc(repo)
+
+	got, err := svc.SuggestCompanions(context.Background(), repo.group.ID, "mari")
+	if err != nil {
+		t.Fatalf("search: %v", err)
+	}
+	if len(got) != 1 || got[0].ID != soloGuest {
+		t.Fatalf("expected only Marina Prado, got %+v", got)
+	}
+
+	// Someone heading an invitation of four must never be offered: gathering
+	// them would leave the other three without a primary.
+	got, err = svc.SuggestCompanions(context.Background(), repo.group.ID, "ronaldo")
+	if err != nil {
+		t.Fatalf("search: %v", err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("head of a shared invitation was offered: %+v", got)
+	}
+
+	// A name nobody on the list has returns nothing — which is the whole point:
+	// the guest cannot conjure someone who was never invited.
+	got, _ = svc.SuggestCompanions(context.Background(), repo.group.ID, "fulano da silva sauro")
+	if len(got) != 0 {
+		t.Fatalf("an uninvited name was offered: %+v", got)
+	}
+}
+
+func TestAddCompanionMovesAnInvitedPersonIn(t *testing.T) {
+	repo, _, _ := newFixture()
+	svc := companionSvc(repo)
 
 	before := len(repo.members)
-	_, members, err := svc.AddCompanion(context.Background(), repo.group.ID,
-		NewCompanion{FullName: "  Maria   das   Dores  ", Attending: "yes"})
+	_, members, err := svc.AddCompanion(context.Background(), repo.group.ID, soloGuest)
 	if err != nil {
 		t.Fatalf("add: %v", err)
 	}
 	if len(members) != before+1 {
-		t.Fatalf("group has %d members, want %d", len(members), before+1)
+		t.Fatalf("invitation has %d members, want %d", len(members), before+1)
 	}
-	var found *Member
+	var moved *Member
 	for i := range members {
-		if members[i].FullName == "Maria das Dores" {
-			found = &members[i]
+		if members[i].ID == soloGuest {
+			moved = &members[i]
 		}
 	}
-	if found == nil {
-		t.Fatalf("companion not in the returned group; inner whitespace should collapse, got %+v", members)
+	if moved == nil {
+		t.Fatal("the gathered guest is not on the invitation")
 	}
-	if found.Attending != "yes" {
-		t.Errorf("attending = %q, want yes — the answer comes with the name", found.Attending)
+	if moved.FullName != "Marina Prado" {
+		t.Errorf("name came from the guest instead of the couple's list: %q", moved.FullName)
+	}
+	if !moved.AddedByGuest {
+		t.Error("gathered guest should be marked as guest-added, so only they can undo it")
+	}
+	// No answer is invented on their behalf — the primary answers for them in
+	// the normal list, with the same buttons as everyone else.
+	if moved.Attending != "pending" {
+		t.Errorf("attending = %q, want pending", moved.Attending)
+	}
+	// They are gone from the pool, so a second invitation cannot claim them.
+	if _, still := repo.elsewhere[soloGuest]; still {
+		t.Error("guest still offered to other invitations after being gathered")
 	}
 }
 
-func TestAddCompanionRefusesBlankNamesAndBadAnswers(t *testing.T) {
-	repo, _, _ := newFixture()
-	svc := NewService(repo, fixedDeadline("2027-07-07"), at("2026-08-24 12:00"), nil)
-	group := repo.group.ID
+func TestAddCompanionRefusesWhoeverIsNotAvailable(t *testing.T) {
+	repo, m1, _ := newFixture()
+	svc := companionSvc(repo)
+	ctx := context.Background()
 
-	if _, _, err := svc.AddCompanion(context.Background(), group,
-		NewCompanion{FullName: "   ", Attending: "yes"}); !errors.Is(err, ErrInvalidName) {
-		t.Errorf("blank name: got %v, want ErrInvalidName", err)
+	if _, _, err := svc.AddCompanion(ctx, repo.group.ID, familyHead); !errors.Is(err, ErrGuestUnavailable) {
+		t.Errorf("head of a shared invitation: got %v, want ErrGuestUnavailable", err)
 	}
-	if _, _, err := svc.AddCompanion(context.Background(), group,
-		NewCompanion{FullName: "Alguém", Attending: "talvez"}); !errors.Is(err, ErrInvalidAnswer) {
-		t.Errorf("bad answer: got %v, want ErrInvalidAnswer", err)
+	if _, _, err := svc.AddCompanion(ctx, repo.group.ID, m1); !errors.Is(err, ErrAlreadyOnInvitation) {
+		t.Errorf("someone already here: got %v, want ErrAlreadyOnInvitation", err)
+	}
+	if _, _, err := svc.AddCompanion(ctx, repo.group.ID, uuid.New()); !errors.Is(err, ErrNotFound) {
+		t.Errorf("a guest that does not exist: got %v, want ErrNotFound", err)
 	}
 }
 
 func TestAddCompanionStopsAtTheCeiling(t *testing.T) {
 	repo, _, _ := newFixture()
-	svc := NewService(repo, fixedDeadline("2027-07-07"), at("2026-08-24 12:00"), nil)
+	svc := companionSvc(repo)
+	ctx := context.Background()
 
+	pool := repo.availableIDs()
 	for i := 0; i < MaxCompanionsPerGroup; i++ {
-		if _, _, err := svc.AddCompanion(context.Background(), repo.group.ID,
-			NewCompanion{FullName: fmt.Sprintf("Convidado Extra %d", i), Attending: "yes"}); err != nil {
+		if _, _, err := svc.AddCompanion(ctx, repo.group.ID, pool[i]); err != nil {
 			t.Fatalf("companion %d rejected early: %v", i, err)
 		}
 	}
-	_, _, err := svc.AddCompanion(context.Background(), repo.group.ID,
-		NewCompanion{FullName: "Um A Mais", Attending: "yes"})
-	if !errors.Is(err, ErrCompanionLimit) {
-		t.Fatalf("got %v, want ErrCompanionLimit after %d companions", err, MaxCompanionsPerGroup)
+	if _, _, err := svc.AddCompanion(ctx, repo.group.ID, pool[MaxCompanionsPerGroup]); !errors.Is(err, ErrCompanionLimit) {
+		t.Fatalf("got %v, want ErrCompanionLimit after %d", err, MaxCompanionsPerGroup)
 	}
 }
 
-func TestAddCompanionRefusedAfterTheDeadline(t *testing.T) {
-	repo, _, _ := newFixture()
-	svc := NewService(repo, fixedDeadline("2026-01-01"), at("2026-08-24 12:00"), nil)
-
-	if _, _, err := svc.AddCompanion(context.Background(), repo.group.ID,
-		NewCompanion{FullName: "Tarde Demais", Attending: "yes"}); !errors.Is(err, ErrDeadlinePassed) {
-		t.Fatalf("got %v, want ErrDeadlinePassed", err)
-	}
-}
-
-func TestRemoveCompanionOnlyReachesWhatTheGuestAdded(t *testing.T) {
+func TestRemoveCompanionSendsThemBackAndOnlyReachesTheGuestsOwn(t *testing.T) {
 	repo, m1, _ := newFixture()
-	svc := NewService(repo, fixedDeadline("2027-07-07"), at("2026-08-24 12:00"), nil)
+	svc := companionSvc(repo)
 	ctx := context.Background()
 
-	// Someone the couple invited is off limits, whatever the caller sends.
+	// Someone the couple placed here is off limits, whatever the caller sends.
 	if _, _, err := svc.RemoveCompanion(ctx, repo.group.ID, m1); !errors.Is(err, ErrNotRemovable) {
-		t.Fatalf("removing a couple-invited guest: got %v, want ErrNotRemovable", err)
+		t.Fatalf("removing a couple-placed guest: got %v, want ErrNotRemovable", err)
 	}
 
-	_, members, err := svc.AddCompanion(ctx, repo.group.ID,
-		NewCompanion{FullName: "Convidada Extra", Attending: "yes"})
-	if err != nil {
+	if _, _, err := svc.AddCompanion(ctx, repo.group.ID, soloGuest); err != nil {
 		t.Fatalf("add: %v", err)
 	}
-	var added uuid.UUID
-	for _, m := range members {
-		if m.FullName == "Convidada Extra" {
-			added = m.ID
-		}
-	}
-
-	_, members, err = svc.RemoveCompanion(ctx, repo.group.ID, added)
+	_, members, err := svc.RemoveCompanion(ctx, repo.group.ID, soloGuest)
 	if err != nil {
-		t.Fatalf("remove own companion: %v", err)
+		t.Fatalf("remove: %v", err)
 	}
 	for _, m := range members {
-		if m.ID == added {
-			t.Fatal("companion still on the invitation after removal")
+		if m.ID == soloGuest {
+			t.Fatal("still on the invitation after being sent back")
 		}
 	}
-
-	// And removing frees the slot back up.
-	if _, _, err := svc.AddCompanion(ctx, repo.group.ID,
-		NewCompanion{FullName: "Outra Convidada", Attending: "no"}); err != nil {
-		t.Fatalf("slot not freed after removal: %v", err)
+	// Sent back, not deleted: they are still invited and pickable again.
+	if _, back := repo.elsewhere[soloGuest]; !back {
+		t.Fatal("guest was dropped from the couple's list instead of returned to their own invitation")
+	}
+	if _, _, err := svc.AddCompanion(ctx, repo.group.ID, soloGuest); err != nil {
+		t.Fatalf("slot not freed after sending someone back: %v", err)
 	}
 }
 
-func TestAddCompanionCategoryDefaultsAndValidates(t *testing.T) {
+func TestCompanionChangesRefusedAfterTheDeadline(t *testing.T) {
 	repo, _, _ := newFixture()
-	svc := NewService(repo, fixedDeadline("2027-07-07"), at("2026-08-24 12:00"), nil)
+	svc := NewService(repo, fixedDeadline("2026-01-01"), at("2026-08-24 12:00"), nil)
 	ctx := context.Background()
 
-	marciano := "marciano"
-	if _, _, err := svc.AddCompanion(ctx, repo.group.ID,
-		NewCompanion{FullName: "Ser Estranho", Attending: "yes", Category: &marciano}); !errors.Is(err, ErrInvalidCategory) {
-		t.Errorf("unknown category: got %v, want ErrInvalidCategory", err)
+	if _, _, err := svc.AddCompanion(ctx, repo.group.ID, soloGuest); !errors.Is(err, ErrDeadlinePassed) {
+		t.Errorf("add: got %v, want ErrDeadlinePassed", err)
 	}
-	outro := "outro"
-	if _, _, err := svc.AddCompanion(ctx, repo.group.ID,
-		NewCompanion{FullName: "Pessoa Nova", Attending: "yes", Gender: &outro}); !errors.Is(err, ErrInvalidCategory) {
-		t.Errorf("unknown gender: got %v, want ErrInvalidCategory", err)
-	}
-	crianca := "child"
-	if _, _, err := svc.AddCompanion(ctx, repo.group.ID,
-		NewCompanion{FullName: "Filha Pequena", Attending: "yes", Category: &crianca}); err != nil {
-		t.Errorf("child rejected: %v", err)
+	if _, _, err := svc.RemoveCompanion(ctx, repo.group.ID, soloGuest); !errors.Is(err, ErrDeadlinePassed) {
+		t.Errorf("remove: got %v, want ErrDeadlinePassed", err)
 	}
 }

@@ -33,18 +33,16 @@ var (
 	// ErrCompanionLimit: the invitation has already added everyone it may.
 	ErrCompanionLimit = errors.New("companion limit reached for this group")
 
-	// ErrNameTaken: the companion's name is already somewhere on the list.
-	ErrNameTaken = errors.New("guest name already on the list")
+	// ErrGuestUnavailable: the person heads an invitation that holds other
+	// people, so moving them would orphan the rest of their family.
+	ErrGuestUnavailable = errors.New("guest already belongs to a shared invitation")
 
-	// ErrInvalidName: a companion needs an actual name.
-	ErrInvalidName = errors.New("companion name is empty")
+	// ErrAlreadyOnInvitation: the person is already on this invitation.
+	ErrAlreadyOnInvitation = errors.New("guest is already on this invitation")
 
-	// ErrInvalidCategory: the category is not one the couple counts by.
-	ErrInvalidCategory = errors.New("unknown guest category")
-
-	// ErrNotRemovable: the guest tried to remove someone the couple invited,
-	// rather than someone they added themselves.
-	ErrNotRemovable = errors.New("only guest-added companions can be removed")
+	// ErrNotRemovable: the guest tried to remove someone the couple placed on
+	// the invitation, rather than someone they gathered in themselves.
+	ErrNotRemovable = errors.New("only guest-gathered companions can be removed")
 )
 
 // Group is a guest group (one invitation).
@@ -71,24 +69,14 @@ type Member struct {
 // and children, and low enough that a mistake stays a mistake.
 const MaxCompanionsPerGroup = 10
 
-// NewCompanion is someone a guest brings along: a name, and whether they come.
-// Everything else the couple records — side, circle, role — belongs to them,
-// not to the guest, so it is left for the panel.
-type NewCompanion struct {
-	FullName  string
-	Attending string // "yes" | "no"
-	// Category feeds the couple's headcount — a child does not eat an adult
-	// meal, and a baby does not take a seat. Defaults to adult when the guest
-	// leaves it alone, which is what most companions are.
-	Category *string
-	// Gender is the couple's own bookkeeping, kept optional: a guest adding
-	// their partner should not be stopped by a field that plans nothing.
-	Gender *string
-}
-
-// validCategories mirrors the guests_category_check constraint.
-var validCategories = map[string]bool{
-	"adult": true, "teen": true, "child": true, "baby": true, "elderly": true,
+// CompanionOption is one person this invitation may gather in — a name the
+// couple already invited, offered for picking.
+//
+// The guest never types a name: the list is the couple's budget, and letting
+// anyone invent a guest would spend it without asking them.
+type CompanionOption struct {
+	ID       uuid.UUID
+	FullName string
 }
 
 // AttendanceUpdate sets one member's RSVP answer.
@@ -102,7 +90,8 @@ type AttendanceUpdate struct {
 // of the group.
 type Repo interface {
 	FindGuestByNormalizedName(ctx context.Context, normalized string) (Member, uuid.UUID, error)
-	AddCompanion(ctx context.Context, groupID uuid.UUID, c NewCompanion) (Member, error)
+	SuggestAvailableCompanions(ctx context.Context, groupID uuid.UUID, prefix string) ([]CompanionOption, error)
+	AddCompanion(ctx context.Context, groupID, guestID uuid.UUID) error
 	RemoveCompanion(ctx context.Context, groupID, guestID uuid.UUID) error
 	GetGroup(ctx context.Context, id uuid.UUID) (Group, error)
 	ListMembers(ctx context.Context, groupID uuid.UUID) ([]Member, error)
@@ -174,32 +163,21 @@ func (s *Service) Lookup(ctx context.Context, fullName string) (Group, []Member,
 	return s.groupWithMembers(ctx, groupID)
 }
 
-// AddCompanion puts one more person on the invitation, answering for them at
-// the same time — the guest already knows whether whoever they are bringing
-// will be there, so asking twice would be theatre.
-//
-// The deadline applies: after it, the guest list is the caterer's problem, not
-// a form's. The group must exist and hold members, so a stale group_id from an
-// old tab cannot conjure guests out of nothing.
-func (s *Service) AddCompanion(ctx context.Context, groupID uuid.UUID, c NewCompanion) (Group, []Member, error) {
-	if c.Attending != "yes" && c.Attending != "no" {
-		return Group{}, nil, ErrInvalidAnswer
+// SuggestCompanions offers names this invitation may gather in. Deliberately
+// a search over the couple's list and not a free text field: the guest list is
+// the couple's budget, and a typed name would spend it without asking them.
+func (s *Service) SuggestCompanions(ctx context.Context, groupID uuid.UUID, query string) ([]CompanionOption, error) {
+	prefix := Normalize(query)
+	if len(prefix) < 3 {
+		return nil, nil
 	}
-	c.FullName = strings.Join(strings.Fields(c.FullName), " ")
-	if Normalize(c.FullName) == "" {
-		return Group{}, nil, ErrInvalidName
-	}
-	if c.Category == nil {
-		adult := "adult"
-		c.Category = &adult
-	}
-	if !validCategories[*c.Category] {
-		return Group{}, nil, ErrInvalidCategory
-	}
-	if c.Gender != nil && *c.Gender != "female" && *c.Gender != "male" {
-		return Group{}, nil, ErrInvalidCategory
-	}
+	return s.repo.SuggestAvailableCompanions(ctx, groupID, escapeLikePrefix(prefix))
+}
 
+// AddCompanion gathers someone the couple already invited into this
+// invitation. Their answer is not asked here — once they are on the list, the
+// primary answers for them with the same buttons as everyone else.
+func (s *Service) AddCompanion(ctx context.Context, groupID, guestID uuid.UUID) (Group, []Member, error) {
 	deadline, err := s.deadline.RSVPDeadline(ctx)
 	if err != nil {
 		return Group{}, nil, fmt.Errorf("load rsvp deadline: %w", err)
@@ -211,19 +189,15 @@ func (s *Service) AddCompanion(ctx context.Context, groupID uuid.UUID, c NewComp
 	if passed {
 		return Group{}, nil, ErrDeadlinePassed
 	}
-
-	if _, err := s.repo.GetGroup(ctx, groupID); err != nil {
-		return Group{}, nil, err
-	}
-	if _, err := s.repo.AddCompanion(ctx, groupID, c); err != nil {
+	if err := s.repo.AddCompanion(ctx, groupID, guestID); err != nil {
 		return Group{}, nil, err
 	}
 	return s.groupWithMembers(ctx, groupID)
 }
 
-// RemoveCompanion takes back someone the guest added. It can only reach rows
-// the guest created themselves — the query, not this function, is what enforces
-// that, so no caller can talk its way past it.
+// RemoveCompanion sends someone back to their own invitation. It can only
+// reach people the guest gathered in themselves — the query, not this
+// function, is what enforces that, so no caller can talk its way past it.
 func (s *Service) RemoveCompanion(ctx context.Context, groupID, guestID uuid.UUID) (Group, []Member, error) {
 	deadline, err := s.deadline.RSVPDeadline(ctx)
 	if err != nil {

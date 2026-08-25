@@ -174,6 +174,138 @@ func (q *Queries) ListGroupMembers(ctx context.Context, groupID uuid.UUID) ([]Li
 	return items, nil
 }
 
+const deleteGroupIfEmpty = `-- name: DeleteGroupIfEmpty :exec
+delete from guest_groups
+where id = $1 and not exists (select 1 from guests where group_id = $1)
+`
+
+func (q *Queries) DeleteGroupIfEmpty(ctx context.Context, id uuid.UUID) error {
+	_, err := q.db.Exec(ctx, deleteGroupIfEmpty, id)
+	return err
+}
+
+const getGuestWithGroupSize = `-- name: GetGuestWithGroupSize :one
+select g.id, g.group_id, g.full_name, g.is_primary, g.attending,
+       (select count(*) from guests o where o.group_id = g.group_id) as group_size
+from guests g
+where g.id = $1
+`
+
+type GetGuestWithGroupSizeRow struct {
+	ID        uuid.UUID
+	GroupID   uuid.UUID
+	FullName  string
+	IsPrimary bool
+	Attending string
+	GroupSize int64
+}
+
+func (q *Queries) GetGuestWithGroupSize(ctx context.Context, id uuid.UUID) (GetGuestWithGroupSizeRow, error) {
+	row := q.db.QueryRow(ctx, getGuestWithGroupSize, id)
+	var i GetGuestWithGroupSizeRow
+	err := row.Scan(
+		&i.ID,
+		&i.GroupID,
+		&i.FullName,
+		&i.IsPrimary,
+		&i.Attending,
+		&i.GroupSize,
+	)
+	return i, err
+}
+
+const insertGuestGroup = `-- name: InsertGuestGroup :one
+insert into guest_groups (label)
+values ($1)
+returning id
+`
+
+func (q *Queries) InsertGuestGroup(ctx context.Context, label string) (uuid.UUID, error) {
+	row := q.db.QueryRow(ctx, insertGuestGroup, label)
+	var id uuid.UUID
+	err := row.Scan(&id)
+	return id, err
+}
+
+const moveGuestToGroup = `-- name: MoveGuestToGroup :execrows
+update guests
+set group_id = $2, is_primary = false, added_by_guest = true, updated_at = now()
+where id = $1
+`
+
+type MoveGuestToGroupParams struct {
+	ID      uuid.UUID
+	GroupID uuid.UUID
+}
+
+func (q *Queries) MoveGuestToGroup(ctx context.Context, arg MoveGuestToGroupParams) (int64, error) {
+	result, err := q.db.Exec(ctx, moveGuestToGroup, arg.ID, arg.GroupID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const restoreCompanionToOwnGroup = `-- name: RestoreCompanionToOwnGroup :execrows
+update guests
+set group_id = $3, is_primary = true, added_by_guest = false, updated_at = now()
+where id = $1 and group_id = $2 and added_by_guest
+`
+
+type RestoreCompanionToOwnGroupParams struct {
+	ID         uuid.UUID
+	GroupID    uuid.UUID
+	NewGroupID uuid.UUID
+}
+
+func (q *Queries) RestoreCompanionToOwnGroup(ctx context.Context, arg RestoreCompanionToOwnGroupParams) (int64, error) {
+	result, err := q.db.Exec(ctx, restoreCompanionToOwnGroup, arg.ID, arg.GroupID, arg.NewGroupID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const suggestAvailableCompanions = `-- name: SuggestAvailableCompanions :many
+select g.id, g.full_name
+from guests g
+where g.normalized_name like $1::text || '%' escape '\'
+  and g.group_id <> $2::uuid
+  and (select count(*) from guests o where o.group_id = g.group_id) = 1
+order by g.full_name
+limit 8
+`
+
+type SuggestAvailableCompanionsParams struct {
+	Prefix  string
+	GroupID uuid.UUID
+}
+
+type SuggestAvailableCompanionsRow struct {
+	ID       uuid.UUID
+	FullName string
+}
+
+func (q *Queries) SuggestAvailableCompanions(ctx context.Context, arg SuggestAvailableCompanionsParams) ([]SuggestAvailableCompanionsRow, error) {
+	rows, err := q.db.Query(ctx, suggestAvailableCompanions, arg.Prefix, arg.GroupID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []SuggestAvailableCompanionsRow
+	for rows.Next() {
+		var i SuggestAvailableCompanionsRow
+		if err := rows.Scan(&i.ID, &i.FullName); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const suggestGuestNames = `-- name: SuggestGuestNames :many
 select full_name
 from guests
@@ -213,68 +345,6 @@ func (q *Queries) CountGroupCompanions(ctx context.Context, groupID uuid.UUID) (
 	var count int64
 	err := row.Scan(&count)
 	return count, err
-}
-
-const deleteCompanion = `-- name: DeleteCompanion :execrows
-delete from guests
-where id = $1 and group_id = $2 and added_by_guest
-`
-
-type DeleteCompanionParams struct {
-	ID      uuid.UUID
-	GroupID uuid.UUID
-}
-
-func (q *Queries) DeleteCompanion(ctx context.Context, arg DeleteCompanionParams) (int64, error) {
-	result, err := q.db.Exec(ctx, deleteCompanion, arg.ID, arg.GroupID)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected(), nil
-}
-
-const insertCompanion = `-- name: InsertCompanion :one
-insert into guests (group_id, full_name, normalized_name, category, gender,
-                    attending, responded_at, added_by_guest)
-values ($1, $2, $3, $4, $5, $6, now(), true)
-returning id, full_name, is_primary, category, attending
-`
-
-type InsertCompanionParams struct {
-	GroupID        uuid.UUID
-	FullName       string
-	NormalizedName string
-	Category       *string
-	Gender         *string
-	Attending      string
-}
-
-type InsertCompanionRow struct {
-	ID        uuid.UUID
-	FullName  string
-	IsPrimary bool
-	Category  *string
-	Attending string
-}
-
-func (q *Queries) InsertCompanion(ctx context.Context, arg InsertCompanionParams) (InsertCompanionRow, error) {
-	row := q.db.QueryRow(ctx, insertCompanion,
-		arg.GroupID,
-		arg.FullName,
-		arg.NormalizedName,
-		arg.Category,
-		arg.Gender,
-		arg.Attending,
-	)
-	var i InsertCompanionRow
-	err := row.Scan(
-		&i.ID,
-		&i.FullName,
-		&i.IsPrimary,
-		&i.Category,
-		&i.Attending,
-	)
-	return i, err
 }
 
 const lockGroupForCompanion = `-- name: LockGroupForCompanion :one
