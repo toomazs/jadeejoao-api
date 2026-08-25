@@ -26,10 +26,18 @@ type GiftParamsBody struct {
 	Sort          int32   `json:"sort"`
 }
 
+// AdminGiftView is a gift as the couple sees it: the public view plus whether
+// it is currently shown. The public endpoint only ever returns active gifts,
+// so the flag would be a constant `true` there — it only means something here.
+type AdminGiftView struct {
+	GiftView
+	Active bool `json:"active" doc:"False quando o presente está escondido do site."`
+}
+
 // AdminGiftsOutput lists every gift, including deactivated ones.
 type AdminGiftsOutput struct {
 	Body struct {
-		Gifts []GiftView `json:"gifts"`
+		Gifts []AdminGiftView `json:"gifts"`
 	}
 }
 
@@ -116,9 +124,9 @@ func RegisterAdmin(api huma.API, svc *Service) {
 			return nil, huma.Error500InternalServerError("erro ao listar os presentes")
 		}
 		out := &AdminGiftsOutput{}
-		out.Body.Gifts = make([]GiftView, len(gifts))
+		out.Body.Gifts = make([]AdminGiftView, len(gifts))
 		for i, g := range gifts {
-			out.Body.Gifts[i] = giftView(g)
+			out.Body.Gifts[i] = AdminGiftView{GiftView: giftView(g), Active: g.Active}
 		}
 		return out, nil
 	})

@@ -1,5 +1,74 @@
 components:
   schemas:
+    AdminGiftView:
+      additionalProperties: false
+      properties:
+        active:
+          description: False quando o presente está escondido do site.
+          type: boolean
+        confirmed_centavos:
+          description: Sum of admin-confirmed contributions. Always 0 for link gifts.
+          format: int64
+          type: integer
+        declared_centavos:
+          description: Sum of declared (not yet confirmed) contributions. Always 0 for link gifts.
+          format: int64
+          type: integer
+        description:
+          type: string
+        external_url:
+          description: The couple's registry URL (link gifts only).
+          format: uri
+          type: string
+        gift_id:
+          format: uuid
+          type: string
+        goal_centavos:
+          description: Goal amount in centavos (BRL). PIX gifts only.
+          format: int64
+          type: integer
+        image_url:
+          format: uri
+          type: string
+        kind:
+          description: "pix: metas/cotas paid by PIX through the site. link: external store registry — the card redirects and no money flows through the API."
+          enum:
+            - pix
+            - link
+          type: string
+        max_units:
+          description: Maximum sellable quota units; null means unlimited. PIX gifts only.
+          format: int32
+          type: integer
+        platform:
+          description: Store slug for link gifts; the SPAs map it to a local logo asset.
+          examples:
+            - mercadolivre
+          type: string
+        quota_centavos:
+          description: Fixed quota unit in centavos; contributions must be multiples. Null means free amount. PIX gifts only.
+          format: int64
+          type: integer
+        sort:
+          format: int32
+          type: integer
+        title:
+          examples:
+            - Para o João fazer a barba
+          type: string
+        units_left:
+          description: "Remaining quota units (only for unit-limited PIX gifts). Optimistic: declared + confirmed consume units."
+          format: int64
+          type: integer
+      required:
+        - active
+        - gift_id
+        - title
+        - kind
+        - declared_centavos
+        - confirmed_centavos
+        - sort
+      type: object
     AdminGiftsOutputBody:
       additionalProperties: false
       properties:
@@ -12,7 +81,7 @@ components:
           type: string
         gifts:
           items:
-            $ref: "#/components/schemas/GiftView"
+            $ref: "#/components/schemas/AdminGiftView"
           type:
             - array
             - "null"
