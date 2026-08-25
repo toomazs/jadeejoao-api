@@ -89,7 +89,9 @@ func (r *pgRepo) ListAllGuests(ctx context.Context) (map[uuid.UUID][]Member, err
 	for _, row := range rows {
 		out[row.GroupID] = append(out[row.GroupID], Member{
 			ID: row.ID, FullName: row.FullName, IsPrimary: row.IsPrimary,
-			Category: row.Category, Attending: row.Attending,
+			Category: row.Category, Attending: row.Attending, AddedByGuest: row.AddedByGuest,
+			Gender: row.Gender, Side: row.Side, Circle: row.Circle,
+			CeremonyRole: row.CeremonyRole, Notes: row.Notes,
 		})
 	}
 	return out, nil

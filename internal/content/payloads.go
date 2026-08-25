@@ -70,22 +70,18 @@ type Lodging struct {
 	ShuttleServed bool   `json:"shuttle_served" doc:"Whether the wedding shuttle (translado) serves this lodging."`
 }
 
-// HeroMilestone is one arch of the hero's photo triptych — a moment of the
-// couple's story (met, proposal, wedding day), fully admin-editable.
-type HeroMilestone struct {
-	Label    string `json:"label" example:"O pedido" doc:"Short caption under the arch."`
-	Date     string `json:"date,omitempty" format:"date" doc:"Optional date shown above the label."`
-	ImageURL string `json:"image_url,omitempty" format:"uri" doc:"Public CDN photo; the site shows brand art while empty."`
-}
-
-// HeroPayload is the opening section: names, date, and the milestone triptych.
+// HeroPayload is the opening section: one photograph, the wordmark, the date.
+//
+// Deliberately NOT built on SectionBase. The hero shows no heading and no
+// prose — the names are the brand wordmark and everything else is the
+// photograph — so a title and body here would be fields the couple can fill
+// in and never see anywhere. It carried both, plus a milestone triptych the
+// site stopped drawing, until 00025 took them out.
 type HeroPayload struct {
-	SectionBase
-	CoupleNames   string          `json:"couple_names" example:"Jade & João"`
-	EventDatetime string          `json:"event_datetime" format:"date-time" example:"2027-08-07T15:00:00-03:00" doc:"Ceremony start, ISO 8601 with America/Sao_Paulo offset."`
-	CityLabel     string          `json:"city_label" example:"Atibaia – SP"`
-	HeroImageURL  string          `json:"hero_image_url,omitempty" format:"uri"`
-	Milestones    []HeroMilestone `json:"milestones,omitempty" maxItems:"3" doc:"Up to three story arches rendered beside the names."`
+	CoupleNames   string `json:"couple_names" example:"Jade & João" doc:"Read by screen readers; the visible names are the wordmark image."`
+	EventDatetime string `json:"event_datetime" format:"date-time" example:"2027-08-07T15:00:00-03:00" doc:"Ceremony start, ISO 8601 with America/Sao_Paulo offset."`
+	CityLabel     string `json:"city_label" example:"Atibaia – SP"`
+	HeroImageURL  string `json:"hero_image_url,omitempty" format:"uri" doc:"The full-bleed photograph behind the wordmark."`
 }
 
 // PersonPayload presents one of the couple in the story-film chapters: the

@@ -114,7 +114,10 @@ select id, label
 from guest_groups
 order by label, id;
 
+-- Feeds the couple's dashboard, so it carries everything the panel shows —
+-- including the spreadsheet columns. The public path uses ListGroupMembers.
 -- name: ListAllGuests :many
-select id, group_id, full_name, is_primary, category, attending
+select id, group_id, full_name, is_primary, category, attending, added_by_guest,
+       gender, side, circle, ceremony_role, notes
 from guests
 order by is_primary desc, full_name;

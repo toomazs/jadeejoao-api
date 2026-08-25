@@ -1007,36 +1007,15 @@ components:
       required:
         - status
       type: object
-    HeroMilestone:
-      additionalProperties: false
-      properties:
-        date:
-          description: Optional date shown above the label.
-          format: date
-          type: string
-        image_url:
-          description: Public CDN photo; the site shows brand art while empty.
-          format: uri
-          type: string
-        label:
-          description: Short caption under the arch.
-          examples:
-            - O pedido
-          type: string
-      required:
-        - label
-      type: object
     HeroPayload:
       additionalProperties: false
       properties:
-        body:
-          description: Rich text as Markdown.
-          type: string
         city_label:
           examples:
             - Atibaia – SP
           type: string
         couple_names:
+          description: Read by screen readers; the visible names are the wordmark image.
           examples:
             - Jade & João
           type: string
@@ -1047,31 +1026,13 @@ components:
           format: date-time
           type: string
         hero_image_url:
+          description: The full-bleed photograph behind the wordmark.
           format: uri
-          type: string
-        images:
-          description: Public CDN image URLs.
-          items:
-            type: string
-          type:
-            - array
-            - "null"
-        milestones:
-          description: Up to three story arches rendered beside the names.
-          items:
-            $ref: "#/components/schemas/HeroMilestone"
-          maxItems: 3
-          type:
-            - array
-            - "null"
-        title:
-          description: Section heading shown on the site.
           type: string
       required:
         - couple_names
         - event_datetime
         - city_label
-        - title
       type: object
     ImportOutputBody:
       additionalProperties: false

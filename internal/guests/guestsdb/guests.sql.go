@@ -90,18 +90,25 @@ func (q *Queries) ListAllGroups(ctx context.Context) ([]ListAllGroupsRow, error)
 }
 
 const listAllGuests = `-- name: ListAllGuests :many
-select id, group_id, full_name, is_primary, category, attending
+select id, group_id, full_name, is_primary, category, attending, added_by_guest,
+       gender, side, circle, ceremony_role, notes
 from guests
 order by is_primary desc, full_name
 `
 
 type ListAllGuestsRow struct {
-	ID        uuid.UUID
-	GroupID   uuid.UUID
-	FullName  string
-	IsPrimary bool
-	Category  *string
-	Attending string
+	ID           uuid.UUID
+	GroupID      uuid.UUID
+	FullName     string
+	IsPrimary    bool
+	Category     *string
+	Attending    string
+	AddedByGuest bool
+	Gender       *string
+	Side         *string
+	Circle       string
+	CeremonyRole string
+	Notes        string
 }
 
 func (q *Queries) ListAllGuests(ctx context.Context) ([]ListAllGuestsRow, error) {
@@ -120,6 +127,12 @@ func (q *Queries) ListAllGuests(ctx context.Context) ([]ListAllGuestsRow, error)
 			&i.IsPrimary,
 			&i.Category,
 			&i.Attending,
+			&i.AddedByGuest,
+			&i.Gender,
+			&i.Side,
+			&i.Circle,
+			&i.CeremonyRole,
+			&i.Notes,
 		); err != nil {
 			return nil, err
 		}
