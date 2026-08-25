@@ -13,6 +13,10 @@ type Config struct {
 	DatabaseURL     string
 	SupabaseURL     string
 	SupabaseJWKSURL string
+	// SupabaseSecretKey reaches the Auth Admin API. Only the server holds it:
+	// it can rewrite any account in the project, so it must never be shipped
+	// to a browser. Empty disables admin password changes (loudly).
+	SupabaseSecretKey string
 
 	StorageS3Endpoint  string
 	StorageS3Region    string
@@ -43,6 +47,7 @@ func LoadConfig() (*Config, error) {
 		DatabaseURL:        os.Getenv("DATABASE_URL"),
 		SupabaseURL:        strings.TrimRight(os.Getenv("SUPABASE_URL"), "/"),
 		SupabaseJWKSURL:    os.Getenv("SUPABASE_JWKS_URL"),
+		SupabaseSecretKey:  os.Getenv("SUPABASE_SECRET_KEY"),
 		StorageS3Endpoint:  os.Getenv("STORAGE_S3_ENDPOINT"),
 		StorageS3Region:    os.Getenv("STORAGE_S3_REGION"),
 		StorageS3AccessKey: os.Getenv("STORAGE_S3_ACCESS_KEY"),

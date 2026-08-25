@@ -18,6 +18,18 @@ var (
 	ErrForbidden = errors.New("forbidden")
 )
 
+// AdminClaims is what a valid admin token tells us about who is calling.
+type AdminClaims struct {
+	Email string
+	// UserID is the Supabase `sub`: needed to change that user's password
+	// through the Admin API without trusting anything the browser sent.
+	UserID string
+	// MustChangePassword comes from app_metadata, which the user themselves
+	// cannot write — unlike user_metadata. That is the whole point: a guest
+	// of the panel must not be able to clear their own obligation.
+	MustChangePassword bool
+}
+
 // AuthValidator validates Supabase Auth JWTs locally against the project
 // JWKS (asymmetric signing keys) and enforces the ADMIN_EMAILS allowlist.
 // No Supabase round-trip per request: keys are cached and refreshed in the
@@ -41,19 +53,19 @@ func NewAuthValidator(jwksURL, issuer string, adminEmails []string) *AuthValidat
 	return &AuthValidator{jwksURL: jwksURL, issuer: issuer, allowedEmails: allowed}
 }
 
-// ValidateBearer checks an Authorization header value and returns the admin
-// email. Errors are ErrUnauthorized (bad/absent token — the admin SPA must
+// ValidateBearer checks an Authorization header value and returns who is
+// calling. Errors are ErrUnauthorized (bad/absent token — the admin SPA must
 // re-authenticate; there is no grace period) or ErrForbidden (authenticated
 // but not the couple).
-func (v *AuthValidator) ValidateBearer(_ context.Context, authorization string) (string, error) {
+func (v *AuthValidator) ValidateBearer(_ context.Context, authorization string) (AdminClaims, error) {
 	raw, ok := strings.CutPrefix(authorization, "Bearer ")
 	if !ok || raw == "" {
-		return "", fmt.Errorf("%w: missing bearer token", ErrUnauthorized)
+		return AdminClaims{}, fmt.Errorf("%w: missing bearer token", ErrUnauthorized)
 	}
 
 	kf, err := v.keyfuncLazy()
 	if err != nil {
-		return "", fmt.Errorf("%w: jwks unavailable: %s", ErrUnauthorized, err)
+		return AdminClaims{}, fmt.Errorf("%w: jwks unavailable: %s", ErrUnauthorized, err)
 	}
 
 	claims := jwt.MapClaims{}
@@ -64,14 +76,19 @@ func (v *AuthValidator) ValidateBearer(_ context.Context, authorization string) 
 		jwt.WithAudience("authenticated"),
 	)
 	if err != nil {
-		return "", fmt.Errorf("%w: %s", ErrUnauthorized, err)
+		return AdminClaims{}, fmt.Errorf("%w: %s", ErrUnauthorized, err)
 	}
 
 	email, _ := claims["email"].(string)
 	if email == "" || !v.allowedEmails[strings.ToLower(email)] {
-		return "", fmt.Errorf("%w: %s is not an admin", ErrForbidden, email)
+		return AdminClaims{}, fmt.Errorf("%w: %s is not an admin", ErrForbidden, email)
 	}
-	return email, nil
+	sub, _ := claims["sub"].(string)
+	must := false
+	if app, ok := claims["app_metadata"].(map[string]any); ok {
+		must, _ = app["must_change_password"].(bool)
+	}
+	return AdminClaims{Email: email, UserID: sub, MustChangePassword: must}, nil
 }
 
 // keyfuncLazy initializes the JWKS client on first use and RETRIES on later

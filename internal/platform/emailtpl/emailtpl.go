@@ -44,7 +44,7 @@ type Page struct {
 	// Preheader is the grey line inbox lists show beside the subject.
 	Preheader string
 	// Kicker sits above the headline in small caps ("CONFIRMAÇÃO DE PRESENÇA").
-	Kicker string
+	Kicker   string
 	Headline string
 	// Intro is one sentence under the headline (optional).
 	Intro string

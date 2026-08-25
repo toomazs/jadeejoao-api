@@ -33,6 +33,9 @@ type Deps struct {
 	Importer  *importer.Service
 	Instagram *instagram.Service
 	Auth      AdminAuthenticator
+	// AdminPassword changes an admin's own password. Nil disables the
+	// endpoint, which cmd/openapi relies on to export the spec offline.
+	AdminPassword AdminPasswordChanger
 }
 
 // Public rate limits, per IP, in-process (single replica). POSTs: generous

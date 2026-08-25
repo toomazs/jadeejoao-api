@@ -78,12 +78,17 @@ func TestValidateBearer(t *testing.T) {
 
 	// Happy path, including case-insensitive allowlist matching.
 	token := signToken(t, key, kid, adminClaims("JADE@example.com", time.Hour))
-	email, err := v.ValidateBearer(ctx, "Bearer "+token)
+	claims, err := v.ValidateBearer(ctx, "Bearer "+token)
 	if err != nil {
 		t.Fatalf("valid token rejected: %v", err)
 	}
-	if email != "JADE@example.com" {
-		t.Fatalf("email = %q", email)
+	if claims.Email != "JADE@example.com" {
+		t.Fatalf("email = %q", claims.Email)
+	}
+	// Absent app_metadata means no obligation — an account that already
+	// changed its password must not be locked out of the panel.
+	if claims.MustChangePassword {
+		t.Error("a token without app_metadata should not carry the obligation")
 	}
 
 	// Expired: 401, no grace.
@@ -126,5 +131,27 @@ func TestValidateBearerRejectsForeignKey(t *testing.T) {
 	forged := signToken(t, otherKey, kid, adminClaims("jade@example.com", time.Hour))
 	if _, err := v.ValidateBearer(context.Background(), "Bearer "+forged); !errors.Is(err, ErrUnauthorized) {
 		t.Fatalf("forged signature: got %v, want ErrUnauthorized", err)
+	}
+}
+
+// The first-login obligation must survive the trip through the token, since
+// the middleware has nothing else to go on.
+func TestValidateBearerReadsThePasswordObligation(t *testing.T) {
+	srv, key, kid := newJWKSFixture(t)
+	v := NewAuthValidator(srv.URL, testIssuer, []string{"jade@example.com"})
+
+	claims := adminClaims("jade@example.com", time.Hour)
+	claims["app_metadata"] = map[string]any{"must_change_password": true}
+	claims["sub"] = "user-123"
+
+	got, err := v.ValidateBearer(context.Background(), "Bearer "+signToken(t, key, kid, claims))
+	if err != nil {
+		t.Fatalf("valid token rejected: %v", err)
+	}
+	if !got.MustChangePassword {
+		t.Error("obligation lost between the token and the claims")
+	}
+	if got.UserID != "user-123" {
+		t.Errorf("UserID = %q, want user-123 — without it the API cannot change the right password", got.UserID)
 	}
 }

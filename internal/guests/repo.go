@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/jadeejoao/jadeejoao-api/internal/guests/guestsdb"
@@ -56,6 +57,8 @@ func (r *pgRepo) ListMembers(ctx context.Context, groupID uuid.UUID) ([]Member, 
 		out[i] = Member{
 			ID: row.ID, FullName: row.FullName, IsPrimary: row.IsPrimary,
 			Category: row.Category, Attending: row.Attending, AddedByGuest: row.AddedByGuest,
+			Gender: row.Gender, Side: row.Side, Circle: row.Circle,
+			CeremonyRole: row.CeremonyRole, Notes: row.Notes,
 		}
 	}
 	return out, nil
@@ -206,6 +209,133 @@ func (r *pgRepo) RemoveCompanion(ctx context.Context, groupID, guestID uuid.UUID
 	if restored == 0 {
 		// Rolls back the group created just above.
 		return ErrNotRemovable
+	}
+	return tx.Commit(ctx)
+}
+
+// UpdateGuestDetails rewrites one person's identity fields from the panel.
+// normalized_name is recomputed here, never taken from the caller: it is what
+// the guest lookup matches on, and a stale one would make somebody vanish from
+// their own invitation.
+func (r *pgRepo) UpdateGuestDetails(ctx context.Context, guestID uuid.UUID, edit GuestEdit) error {
+	affected, err := r.q.UpdateGuestDetails(ctx, guestsdb.UpdateGuestDetailsParams{
+		ID:             guestID,
+		FullName:       edit.FullName,
+		NormalizedName: Normalize(edit.FullName),
+		Category:       edit.Category,
+		Gender:         edit.Gender,
+		Side:           edit.Side,
+		Circle:         edit.Circle,
+		CeremonyRole:   edit.CeremonyRole,
+		Notes:          edit.Notes,
+	})
+	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+			return ErrNameTaken
+		}
+		return err
+	}
+	if affected == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// DeleteGuest removes one person, and their invitation with them if it is left
+// empty — an invitation with nobody on it is only clutter in the dashboard.
+func (r *pgRepo) DeleteGuest(ctx context.Context, guestID uuid.UUID) error {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck // no-op after commit
+
+	q := r.q.WithTx(tx)
+	guest, err := q.GetGuestWithGroupSize(ctx, guestID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrNotFound
+		}
+		return err
+	}
+	affected, err := q.DeleteGuest(ctx, guestID)
+	if err != nil {
+		return err
+	}
+	if affected == 0 {
+		return ErrNotFound
+	}
+	if err := q.DeleteGroupIfEmpty(ctx, guest.GroupID); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+func (r *pgRepo) RenameGroup(ctx context.Context, groupID uuid.UUID, label string) error {
+	affected, err := r.q.RenameGroup(ctx, guestsdb.RenameGroupParams{ID: groupID, Label: label})
+	if err != nil {
+		return err
+	}
+	if affected == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// SetGroupPrimary hands the invitation to somebody else. One statement, so no
+// instant exists where the invitation has two primaries or none.
+func (r *pgRepo) SetGroupPrimary(ctx context.Context, groupID, guestID uuid.UUID) error {
+	affected, err := r.q.SetGroupPrimary(ctx, guestsdb.SetGroupPrimaryParams{
+		GuestID: guestID, GroupID: groupID,
+	})
+	if err != nil {
+		return err
+	}
+	if affected == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// MoveGuestAsAdmin merges someone into another invitation. Unlike the guest
+// path this accepts anyone — the couple is allowed to reshape their own list —
+// but it still tidies the invitation left behind.
+func (r *pgRepo) MoveGuestAsAdmin(ctx context.Context, groupID, guestID uuid.UUID) error {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck // no-op after commit
+
+	q := r.q.WithTx(tx)
+	guest, err := q.GetGuestWithGroupSize(ctx, guestID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrNotFound
+		}
+		return err
+	}
+	if guest.GroupID == groupID {
+		return ErrAlreadyOnInvitation
+	}
+	if _, err := q.GetGuestGroup(ctx, groupID); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrNotFound
+		}
+		return err
+	}
+	moved, err := q.MoveGuestToGroupAsAdmin(ctx, guestsdb.MoveGuestToGroupAsAdminParams{
+		ID: guestID, GroupID: groupID,
+	})
+	if err != nil {
+		return err
+	}
+	if moved == 0 {
+		return ErrNotFound
+	}
+	if err := q.DeleteGroupIfEmpty(ctx, guest.GroupID); err != nil {
+		return err
 	}
 	return tx.Commit(ctx)
 }

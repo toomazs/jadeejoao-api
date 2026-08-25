@@ -690,3 +690,118 @@ func TestCompanionChangesRefusedAfterTheDeadline(t *testing.T) {
 		t.Errorf("remove: got %v, want ErrDeadlinePassed", err)
 	}
 }
+
+// --- the panel's list-repair surface ---
+
+func (f *fakeRepo) UpdateGuestDetails(_ context.Context, guestID uuid.UUID, edit GuestEdit) error {
+	for _, m := range f.members {
+		if m.ID != guestID && Normalize(m.FullName) == Normalize(edit.FullName) {
+			return ErrNameTaken
+		}
+	}
+	for i, m := range f.members {
+		if m.ID == guestID {
+			f.members[i].FullName = edit.FullName
+			f.members[i].Category = edit.Category
+			f.members[i].Notes = edit.Notes
+			return nil
+		}
+	}
+	return ErrNotFound
+}
+
+func (f *fakeRepo) DeleteGuest(_ context.Context, guestID uuid.UUID) error {
+	for i, m := range f.members {
+		if m.ID == guestID {
+			f.members = append(f.members[:i], f.members[i+1:]...)
+			return nil
+		}
+	}
+	return ErrNotFound
+}
+
+func (f *fakeRepo) RenameGroup(_ context.Context, groupID uuid.UUID, label string) error {
+	if groupID != f.group.ID {
+		return ErrNotFound
+	}
+	f.group.Label = label
+	return nil
+}
+
+func (f *fakeRepo) SetGroupPrimary(_ context.Context, groupID, guestID uuid.UUID) error {
+	if groupID != f.group.ID {
+		return ErrNotFound
+	}
+	found := false
+	for i := range f.members {
+		f.members[i].IsPrimary = f.members[i].ID == guestID
+		found = found || f.members[i].ID == guestID
+	}
+	if !found {
+		return ErrNotFound
+	}
+	return nil
+}
+
+func (f *fakeRepo) MoveGuestAsAdmin(_ context.Context, groupID, guestID uuid.UUID) error {
+	if groupID != f.group.ID {
+		return ErrNotFound
+	}
+	for _, m := range f.members {
+		if m.ID == guestID {
+			return ErrAlreadyOnInvitation
+		}
+	}
+	o, ok := f.elsewhere[guestID]
+	if !ok {
+		return ErrNotFound
+	}
+	delete(f.elsewhere, guestID)
+	f.members = append(f.members, Member{ID: guestID, FullName: o.name, Attending: "pending"})
+	return nil
+}
+
+func TestEditGuestKeepsNamesUniqueAndVocabularyClosed(t *testing.T) {
+	repo, m1, m2 := newFixture()
+	svc := companionSvc(repo)
+	ctx := context.Background()
+
+	// Names are globally unique because the guest lookup matches on them:
+	// two "Ana Clara Silva" and one of them cannot open her own invitation.
+	if err := svc.EditGuest(ctx, m1, GuestEdit{FullName: "Ana Clara Silva"}); !errors.Is(err, ErrNameTaken) {
+		t.Errorf("duplicate name: got %v, want ErrNameTaken", err)
+	}
+	if err := svc.EditGuest(ctx, m1, GuestEdit{FullName: "   "}); !errors.Is(err, ErrInvalidName) {
+		t.Errorf("blank name: got %v, want ErrInvalidName", err)
+	}
+	marciano := "marciano"
+	if err := svc.EditGuest(ctx, m1, GuestEdit{FullName: "Eduardo Silva", Category: &marciano}); !errors.Is(err, ErrInvalidField) {
+		t.Errorf("unknown category: got %v, want ErrInvalidField", err)
+	}
+
+	// The happy path also collapses stray whitespace, like the import does.
+	if err := svc.EditGuest(ctx, m2, GuestEdit{FullName: "  Ana   Clara  Silva ", Notes: "Prima"}); err != nil {
+		t.Fatalf("edit: %v", err)
+	}
+	if repo.members[1].FullName != "Ana Clara Silva" || repo.members[1].Notes != "Prima" {
+		t.Errorf("edit not applied: %+v", repo.members[1])
+	}
+}
+
+func TestSetPrimaryLeavesExactlyOne(t *testing.T) {
+	repo, _, m2 := newFixture()
+	svc := companionSvc(repo)
+
+	if err := svc.SetPrimary(context.Background(), repo.group.ID, m2); err != nil {
+		t.Fatalf("set primary: %v", err)
+	}
+	primaries := 0
+	for _, m := range repo.members {
+		if m.IsPrimary {
+			primaries++
+		}
+	}
+	if primaries != 1 || !repo.members[1].IsPrimary {
+		t.Fatalf("want exactly one primary and it to be the new one, got %+v", repo.members)
+	}
+}

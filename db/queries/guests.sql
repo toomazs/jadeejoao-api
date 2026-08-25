@@ -9,10 +9,38 @@ from guest_groups
 where id = $1;
 
 -- name: ListGroupMembers :many
-select id, full_name, is_primary, category, attending, added_by_guest
+select id, full_name, is_primary, category, attending, added_by_guest,
+       gender, side, circle, ceremony_role, notes
 from guests
 where group_id = $1
 order by is_primary desc, full_name;
+
+-- Admin guest management. The importer owns identity on bulk upload (AD-10);
+-- these are the manual repairs the couple needs when a name is wrong, two
+-- families should share an invitation, or somebody is not coming at all.
+-- name: UpdateGuestDetails :execrows
+update guests
+set full_name = $2, normalized_name = $3, category = $4, gender = $5,
+    side = $6, circle = $7, ceremony_role = $8, notes = $9, updated_at = now()
+where id = $1;
+
+-- name: DeleteGuest :execrows
+delete from guests where id = $1;
+
+-- name: RenameGroup :execrows
+update guest_groups set label = $2 where id = $1;
+
+-- Exactly one primary per invitation, set in a single statement so no moment
+-- exists with two or none.
+-- name: SetGroupPrimary :execrows
+update guests
+set is_primary = (id = @guest_id::uuid), updated_at = now()
+where group_id = @group_id::uuid;
+
+-- name: MoveGuestToGroupAsAdmin :execrows
+update guests
+set group_id = $2, is_primary = false, updated_at = now()
+where id = $1;
 
 -- Adds a companion the guest brought along. The row lock is on the group, not
 -- on the guests table: two people opening the invitation on two phones must

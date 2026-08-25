@@ -132,7 +132,8 @@ func (q *Queries) ListAllGuests(ctx context.Context) ([]ListAllGuestsRow, error)
 }
 
 const listGroupMembers = `-- name: ListGroupMembers :many
-select id, full_name, is_primary, category, attending, added_by_guest
+select id, full_name, is_primary, category, attending, added_by_guest,
+       gender, side, circle, ceremony_role, notes
 from guests
 where group_id = $1
 order by is_primary desc, full_name
@@ -145,6 +146,11 @@ type ListGroupMembersRow struct {
 	Category     *string
 	Attending    string
 	AddedByGuest bool
+	Gender       *string
+	Side         *string
+	Circle       string
+	CeremonyRole string
+	Notes        string
 }
 
 func (q *Queries) ListGroupMembers(ctx context.Context, groupID uuid.UUID) ([]ListGroupMembersRow, error) {
@@ -163,6 +169,11 @@ func (q *Queries) ListGroupMembers(ctx context.Context, groupID uuid.UUID) ([]Li
 			&i.Category,
 			&i.Attending,
 			&i.AddedByGuest,
+			&i.Gender,
+			&i.Side,
+			&i.Circle,
+			&i.CeremonyRole,
+			&i.Notes,
 		); err != nil {
 			return nil, err
 		}
@@ -359,6 +370,110 @@ func (q *Queries) LockGroupForCompanion(ctx context.Context, id uuid.UUID) (uuid
 	var id_ uuid.UUID
 	err := row.Scan(&id_)
 	return id_, err
+}
+
+const deleteGuest = `-- name: DeleteGuest :execrows
+delete from guests where id = $1
+`
+
+func (q *Queries) DeleteGuest(ctx context.Context, id uuid.UUID) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteGuest, id)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const moveGuestToGroupAsAdmin = `-- name: MoveGuestToGroupAsAdmin :execrows
+update guests
+set group_id = $2, is_primary = false, updated_at = now()
+where id = $1
+`
+
+type MoveGuestToGroupAsAdminParams struct {
+	ID      uuid.UUID
+	GroupID uuid.UUID
+}
+
+func (q *Queries) MoveGuestToGroupAsAdmin(ctx context.Context, arg MoveGuestToGroupAsAdminParams) (int64, error) {
+	result, err := q.db.Exec(ctx, moveGuestToGroupAsAdmin, arg.ID, arg.GroupID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const renameGroup = `-- name: RenameGroup :execrows
+update guest_groups set label = $2 where id = $1
+`
+
+type RenameGroupParams struct {
+	ID    uuid.UUID
+	Label string
+}
+
+func (q *Queries) RenameGroup(ctx context.Context, arg RenameGroupParams) (int64, error) {
+	result, err := q.db.Exec(ctx, renameGroup, arg.ID, arg.Label)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const setGroupPrimary = `-- name: SetGroupPrimary :execrows
+update guests
+set is_primary = (id = $1::uuid), updated_at = now()
+where group_id = $2::uuid
+`
+
+type SetGroupPrimaryParams struct {
+	GuestID uuid.UUID
+	GroupID uuid.UUID
+}
+
+func (q *Queries) SetGroupPrimary(ctx context.Context, arg SetGroupPrimaryParams) (int64, error) {
+	result, err := q.db.Exec(ctx, setGroupPrimary, arg.GuestID, arg.GroupID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const updateGuestDetails = `-- name: UpdateGuestDetails :execrows
+update guests
+set full_name = $2, normalized_name = $3, category = $4, gender = $5,
+    side = $6, circle = $7, ceremony_role = $8, notes = $9, updated_at = now()
+where id = $1
+`
+
+type UpdateGuestDetailsParams struct {
+	ID             uuid.UUID
+	FullName       string
+	NormalizedName string
+	Category       *string
+	Gender         *string
+	Side           *string
+	Circle         string
+	CeremonyRole   string
+	Notes          string
+}
+
+func (q *Queries) UpdateGuestDetails(ctx context.Context, arg UpdateGuestDetailsParams) (int64, error) {
+	result, err := q.db.Exec(ctx, updateGuestDetails,
+		arg.ID,
+		arg.FullName,
+		arg.NormalizedName,
+		arg.Category,
+		arg.Gender,
+		arg.Side,
+		arg.Circle,
+		arg.CeremonyRole,
+		arg.Notes,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const updateGuestAttendance = `-- name: UpdateGuestAttendance :execrows

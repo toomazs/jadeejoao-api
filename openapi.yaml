@@ -19,6 +19,61 @@ components:
       required:
         - gifts
       type: object
+    AdminMemberView:
+      additionalProperties: false
+      properties:
+        added_by_guest:
+          description: True quando o próprio convidado trouxe essa pessoa.
+          type: boolean
+        attending:
+          enum:
+            - pending
+            - "yes"
+            - "no"
+          type: string
+        category:
+          enum:
+            - adult
+            - teen
+            - child
+            - baby
+            - elderly
+          type: string
+        ceremony_role:
+          description: Padrinho, madrinha, celebrante…
+          type: string
+        circle:
+          description: "Círculo social: amigos, família, trabalho."
+          type: string
+        full_name:
+          type: string
+        gender:
+          enum:
+            - female
+            - male
+          type: string
+        guest_id:
+          format: uuid
+          type: string
+        is_primary:
+          type: boolean
+        notes:
+          description: Anotação livre, normalmente parentesco.
+          type: string
+        side:
+          description: De quem é o convidado.
+          enum:
+            - bride
+            - groom
+            - both
+          type: string
+      required:
+        - guest_id
+        - full_name
+        - is_primary
+        - attending
+        - added_by_guest
+      type: object
     AnnouncementPayload:
       additionalProperties: false
       properties:
@@ -713,7 +768,7 @@ components:
           type: string
         members:
           items:
-            $ref: "#/components/schemas/MemberView"
+            $ref: "#/components/schemas/AdminMemberView"
           type:
             - array
             - "null"
@@ -721,6 +776,41 @@ components:
         - group_id
         - label
         - members
+      type: object
+    GroupMemberInputBody:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - https://example.com/schemas/GroupMemberInputBody.json
+          format: uri
+          readOnly: true
+          type: string
+        guest_id:
+          format: uuid
+          type: string
+      required:
+        - guest_id
+      type: object
+    GroupRenameInputBody:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - https://example.com/schemas/GroupRenameInputBody.json
+          format: uri
+          readOnly: true
+          type: string
+        label:
+          examples:
+            - Família Nascimento
+          maxLength: 120
+          minLength: 2
+          type: string
+      required:
+        - label
       type: object
     GroupView:
       additionalProperties: false
@@ -749,6 +839,58 @@ components:
         - group_id
         - label
         - members
+      type: object
+    GuestEditInputBody:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - https://example.com/schemas/GuestEditInputBody.json
+          format: uri
+          readOnly: true
+          type: string
+        category:
+          enum:
+            - adult
+            - teen
+            - child
+            - baby
+            - elderly
+          type: string
+        ceremony_role:
+          examples:
+            - Madrinha
+          maxLength: 60
+          type: string
+        circle:
+          description: "Círculo social: amigos, família, trabalho."
+          examples:
+            - Amigos
+          maxLength: 60
+          type: string
+        full_name:
+          maxLength: 120
+          minLength: 2
+          type: string
+        gender:
+          enum:
+            - female
+            - male
+          type: string
+        notes:
+          description: Anotação livre, normalmente parentesco.
+          maxLength: 500
+          type: string
+        side:
+          description: De quem é o convidado.
+          enum:
+            - bride
+            - groom
+            - both
+          type: string
+      required:
+        - full_name
       type: object
     HeadcountsView:
       additionalProperties: false
@@ -1215,6 +1357,21 @@ components:
       required:
         - status
       type: object
+    OkOutputBody:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - https://example.com/schemas/OkOutputBody.json
+          format: uri
+          readOnly: true
+          type: string
+        ok:
+          type: boolean
+      required:
+        - ok
+      type: object
     OurStoryPayload:
       additionalProperties: false
       properties:
@@ -1252,6 +1409,46 @@ components:
           type: string
       required:
         - title
+      type: object
+    PasswordChangeInputBody:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - https://example.com/schemas/PasswordChangeInputBody.json
+          format: uri
+          readOnly: true
+          type: string
+        current_password:
+          description: A senha que você usou para entrar.
+          maxLength: 200
+          minLength: 1
+          type: string
+        new_password:
+          description: A nova senha, com pelo menos 10 caracteres.
+          maxLength: 200
+          minLength: 10
+          type: string
+      required:
+        - current_password
+        - new_password
+      type: object
+    PasswordChangeOutputBody:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - https://example.com/schemas/PasswordChangeOutputBody.json
+          format: uri
+          readOnly: true
+          type: string
+        changed:
+          description: Sempre true; entre novamente com a senha nova.
+          type: boolean
+      required:
+        - changed
       type: object
     PersonPayload:
       additionalProperties: false
@@ -1777,6 +1974,114 @@ paths:
       tags:
         - gifts
         - admin
+  /api/v1/admin/groups/{group_id}:
+    patch:
+      description: Relabels the invitation — what the guest sees at the top of their card.
+      operationId: admin-rename-invitation
+      parameters:
+        - in: path
+          name: group_id
+          required: true
+          schema:
+            format: uuid
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GroupRenameInputBody"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OkOutputBody"
+          description: OK
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      security:
+        - supabaseJWT: []
+      summary: Rename an invitation
+      tags:
+        - guests
+        - admin
+  /api/v1/admin/groups/{group_id}/members:
+    post:
+      description: Merges someone into this invitation, tidying away the one they leave behind if it empties. Unlike the guest-facing path, the couple may move anyone.
+      operationId: admin-merge-into-invitation
+      parameters:
+        - in: path
+          name: group_id
+          required: true
+          schema:
+            format: uuid
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GroupMemberInputBody"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OkOutputBody"
+          description: OK
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      security:
+        - supabaseJWT: []
+      summary: Move a guest into an invitation
+      tags:
+        - guests
+        - admin
+  /api/v1/admin/groups/{group_id}/primary:
+    post:
+      description: Makes this guest the one who answers for the invitation. Applied in a single statement, so the invitation never has two primaries or none.
+      operationId: admin-set-primary
+      parameters:
+        - in: path
+          name: group_id
+          required: true
+          schema:
+            format: uuid
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GroupMemberInputBody"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OkOutputBody"
+          description: OK
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      security:
+        - supabaseJWT: []
+      summary: Hand an invitation to someone
+      tags:
+        - guests
+        - admin
   /api/v1/admin/guests:
     get:
       description: Every group with per-guest RSVP state, plus headcounts by category.
@@ -1828,6 +2133,71 @@ paths:
       security:
         - supabaseJWT: []
       summary: Export guest list as CSV
+      tags:
+        - guests
+        - admin
+  /api/v1/admin/guests/{guest_id}:
+    delete:
+      description: Removes one person for good, and their invitation with them if it is left empty. Never happens automatically on import (AD-10).
+      operationId: admin-delete-guest
+      parameters:
+        - in: path
+          name: guest_id
+          required: true
+          schema:
+            format: uuid
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OkOutputBody"
+          description: OK
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      security:
+        - supabaseJWT: []
+      summary: Delete a guest
+      tags:
+        - guests
+        - admin
+    patch:
+      description: Corrects identity fields. Attendance is not editable here — it belongs to the RSVP flow.
+      operationId: admin-edit-guest
+      parameters:
+        - in: path
+          name: guest_id
+          required: true
+          schema:
+            format: uuid
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GuestEditInputBody"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OkOutputBody"
+          description: OK
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      security:
+        - supabaseJWT: []
+      summary: Edit a guest
       tags:
         - guests
         - admin
@@ -2031,6 +2401,35 @@ paths:
       summary: Approve or reject a message
       tags:
         - messages
+        - admin
+  /api/v1/admin/password:
+    post:
+      description: Replaces the signed-in admin's password and clears the first-login obligation. The only admin operation reachable while that obligation stands; everything else answers 403 until it is done.
+      operationId: change-admin-password
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PasswordChangeInputBody"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PasswordChangeOutputBody"
+          description: OK
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      security:
+        - supabaseJWT: []
+      summary: Change the admin password
+      tags:
+        - admin
         - admin
   /api/v1/admin/sections:
     get:

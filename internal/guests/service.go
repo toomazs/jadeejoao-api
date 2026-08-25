@@ -33,6 +33,17 @@ var (
 	// ErrCompanionLimit: the invitation has already added everyone it may.
 	ErrCompanionLimit = errors.New("companion limit reached for this group")
 
+	// ErrInvalidField: an edit carried a value outside the schema's vocabulary.
+	ErrInvalidField = errors.New("field value not recognised")
+
+	// ErrInvalidName: a name cannot be blank.
+	ErrInvalidName = errors.New("name is empty")
+
+	// ErrNameTaken: another guest already carries that name. Names are globally
+	// unique because the lookup matches on them — two "Maria Silva" would make
+	// one of them unable to open her own invitation.
+	ErrNameTaken = errors.New("guest name already on the list")
+
 	// ErrGuestUnavailable: the person heads an invitation that holds other
 	// people, so moving them would orphan the rest of their family.
 	ErrGuestUnavailable = errors.New("guest already belongs to a shared invitation")
@@ -58,9 +69,29 @@ type Member struct {
 	IsPrimary bool
 	Category  *string
 	Attending string
-	// AddedByGuest marks someone a guest put on the invitation themselves,
-	// rather than a name the couple typed into their spreadsheet.
+	// AddedByGuest marks someone a guest gathered into the invitation
+	// themselves, rather than a name the couple typed into their spreadsheet.
 	AddedByGuest bool
+	// The couple's own bookkeeping, carried straight from their spreadsheet.
+	// Never shown to guests; the panel reads and edits it.
+	Gender       *string
+	Side         *string
+	Circle       string
+	CeremonyRole string
+	Notes        string
+}
+
+// GuestEdit is the panel correcting one person's details. Attendance is not
+// here: the guests service owns it through the RSVP flow, and an edit screen
+// silently rewriting somebody's answer would be a trap.
+type GuestEdit struct {
+	FullName     string
+	Category     *string
+	Gender       *string
+	Side         *string
+	Circle       string
+	CeremonyRole string
+	Notes        string
 }
 
 // MaxCompanionsPerGroup bounds how many people one invitation may add to
@@ -68,6 +99,11 @@ type Member struct {
 // guest and the guest list — so the ceiling is generous enough for a partner
 // and children, and low enough that a mistake stays a mistake.
 const MaxCompanionsPerGroup = 10
+
+// validCategories mirrors the guests_category_check constraint.
+var validCategories = map[string]bool{
+	"adult": true, "teen": true, "child": true, "baby": true, "elderly": true,
+}
 
 // CompanionOption is one person this invitation may gather in — a name the
 // couple already invited, offered for picking.
@@ -97,6 +133,11 @@ type Repo interface {
 	ListMembers(ctx context.Context, groupID uuid.UUID) ([]Member, error)
 	UpdateAttendances(ctx context.Context, groupID uuid.UUID, updates []AttendanceUpdate) error
 	SuggestNames(ctx context.Context, normalizedPrefix string) ([]string, error)
+	UpdateGuestDetails(ctx context.Context, guestID uuid.UUID, edit GuestEdit) error
+	DeleteGuest(ctx context.Context, guestID uuid.UUID) error
+	RenameGroup(ctx context.Context, groupID uuid.UUID, label string) error
+	SetGroupPrimary(ctx context.Context, groupID, guestID uuid.UUID) error
+	MoveGuestAsAdmin(ctx context.Context, groupID, guestID uuid.UUID) error
 	ListAllGroups(ctx context.Context) ([]Group, error)
 	ListAllGuests(ctx context.Context) (map[uuid.UUID][]Member, error)
 }
@@ -214,6 +255,57 @@ func (s *Service) RemoveCompanion(ctx context.Context, groupID, guestID uuid.UUI
 		return Group{}, nil, err
 	}
 	return s.groupWithMembers(ctx, groupID)
+}
+
+// EditGuest corrects one person's details from the panel.
+//
+// The importer owns identity on bulk upload (AD-10); this is the manual repair
+// path for the cases it cannot serve — a misspelling, a category that was
+// guessed wrong, a note the couple wants to keep.
+func (s *Service) EditGuest(ctx context.Context, guestID uuid.UUID, edit GuestEdit) error {
+	edit.FullName = strings.Join(strings.Fields(edit.FullName), " ")
+	if Normalize(edit.FullName) == "" {
+		return ErrInvalidName
+	}
+	if edit.Category != nil && !validCategories[*edit.Category] {
+		return ErrInvalidField
+	}
+	if edit.Gender != nil && *edit.Gender != "female" && *edit.Gender != "male" {
+		return ErrInvalidField
+	}
+	if edit.Side != nil && *edit.Side != "bride" && *edit.Side != "groom" && *edit.Side != "both" {
+		return ErrInvalidField
+	}
+	return s.repo.UpdateGuestDetails(ctx, guestID, edit)
+}
+
+// DeleteGuest removes somebody from the list for good. Deliberately manual and
+// never a side effect of an import (AD-10): a spreadsheet missing a row means
+// the row was not exported, not that the person is uninvited.
+func (s *Service) DeleteGuest(ctx context.Context, guestID uuid.UUID) error {
+	return s.repo.DeleteGuest(ctx, guestID)
+}
+
+// RenameInvitation relabels a group — "Ronaldo Nascimento" becoming "Família
+// Nascimento" once four people share it.
+func (s *Service) RenameInvitation(ctx context.Context, groupID uuid.UUID, label string) error {
+	label = strings.Join(strings.Fields(label), " ")
+	if label == "" {
+		return ErrInvalidName
+	}
+	return s.repo.RenameGroup(ctx, groupID, label)
+}
+
+// SetPrimary hands an invitation to somebody else — the person who actually
+// answers for the family.
+func (s *Service) SetPrimary(ctx context.Context, groupID, guestID uuid.UUID) error {
+	return s.repo.SetGroupPrimary(ctx, groupID, guestID)
+}
+
+// MergeIntoInvitation moves a guest into another invitation. This is the
+// couple's own tool, so unlike the guest-facing path it accepts anyone.
+func (s *Service) MergeIntoInvitation(ctx context.Context, groupID, guestID uuid.UUID) error {
+	return s.repo.MoveGuestAsAdmin(ctx, groupID, guestID)
 }
 
 // SubmitRSVP records one yes/no per member of the group. Idempotent:

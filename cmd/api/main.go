@@ -63,6 +63,11 @@ func run() error {
 		return err
 	}
 
+	supabaseAuth := platform.NewSupabaseAuth(cfg.SupabaseURL, cfg.SupabaseSecretKey)
+	if !supabaseAuth.Configured() {
+		slog.Warn("SUPABASE_SECRET_KEY is empty — admins cannot change their password")
+	}
+
 	var mailer guests.Mailer
 	switch {
 	case cfg.ResendAPIKey != "" && len(cfg.NotifyEmails) > 0:
@@ -90,11 +95,12 @@ func run() error {
 			MerchantName: cfg.PIXMerchantName,
 			MerchantCity: cfg.PIXMerchantCity,
 		}),
-		Messages:  messagesSvc,
-		Media:     media.NewService(media.NewRepo(pool), storage),
-		Importer:  importer.NewService(importer.NewRepo(pool)),
-		Instagram: igSvc,
-		Auth:      platform.NewAuthValidator(cfg.SupabaseJWKSURL, cfg.SupabaseURL+"/auth/v1", cfg.AdminEmails),
+		Messages:      messagesSvc,
+		Media:         media.NewService(media.NewRepo(pool), storage),
+		Importer:      importer.NewService(importer.NewRepo(pool)),
+		Instagram:     igSvc,
+		Auth:          platform.NewAuthValidator(cfg.SupabaseJWKSURL, cfg.SupabaseURL+"/auth/v1", cfg.AdminEmails),
+		AdminPassword: supabaseAuth,
 	}
 
 	srv := &http.Server{
