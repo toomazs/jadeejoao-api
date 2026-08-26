@@ -135,6 +135,22 @@ type AuthUser struct {
 	Email string `json:"email"`
 }
 
+// SetDisplayName records how somebody is addressed in the panel.
+//
+// In user_metadata rather than app_metadata: this is theirs, not a claim about
+// their permissions, and there is no harm in them changing it. The greeting
+// rides along because Portuguese has a gender and a name does not tell you
+// which one — guessing it from the letters is how software calls people the
+// wrong thing.
+func (s *SupabaseAuth) SetDisplayName(ctx context.Context, userID, name, greeting string) error {
+	return s.do(ctx, http.MethodPut, "/admin/users/"+userID, map[string]any{
+		"user_metadata": map[string]any{
+			"display_name": name,
+			"greeting":     greeting,
+		},
+	}, nil)
+}
+
 // FindUserByEmail looks up an account so the provisioning command can tell
 // "create" from "reset".
 func (s *SupabaseAuth) FindUserByEmail(ctx context.Context, email string) (AuthUser, error) {

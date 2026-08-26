@@ -30,15 +30,17 @@ func main() {
 	email := flag.String("email", "", "email of the panel account")
 	reset := flag.Bool("reset", false, "put an existing account back on a temporary password")
 	list := flag.Bool("list", false, "list the panel accounts that exist")
+	name := flag.String("name", "", "how the panel addresses this person, e.g. Jade")
+	greeting := flag.String("greeting", "", "Bem-vindo or Bem-vinda — Portuguese has a gender and a name does not tell you which")
 	flag.Parse()
 
-	if err := run(*email, *reset, *list); err != nil {
+	if err := run(*email, *reset, *list, *name, *greeting); err != nil {
 		fmt.Fprintln(os.Stderr, "erro:", err)
 		os.Exit(1)
 	}
 }
 
-func run(email string, reset, list bool) error {
+func run(email string, reset, list bool, name, greeting string) error {
 	platform.LoadDotEnv(".env")
 	cfg, err := platform.LoadConfig()
 	if err != nil {
@@ -75,6 +77,24 @@ func run(email string, reset, list bool) error {
 	if !allowed(cfg.AdminEmails, email) {
 		return fmt.Errorf("%s não está em ADMIN_EMAILS (%s) — a conta entraria e não conseguiria fazer nada",
 			email, strings.Join(cfg.AdminEmails, ", "))
+	}
+
+	// Naming somebody is not a password operation and must not ask for one:
+	// making the couple type a temporary password to fix a spelling would be
+	// the kind of friction that stops it being fixed.
+	if name != "" && !reset {
+		user, err := auth.FindUserByEmail(ctx, email)
+		if err != nil {
+			return err
+		}
+		if greeting == "" {
+			return errors.New("informe -greeting (Bem-vindo ou Bem-vinda) junto com -name")
+		}
+		if err := auth.SetDisplayName(ctx, user.ID, name, greeting); err != nil {
+			return err
+		}
+		fmt.Printf("%s agora é %q, cumprimentado com %q\n", email, name, greeting)
+		return nil
 	}
 
 	temp, err := readTempPassword()

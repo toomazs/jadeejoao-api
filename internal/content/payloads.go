@@ -106,7 +106,7 @@ type PersonPayload struct {
 // the couple's handwritten-style caption, and an optional freeform date
 // ("12 de maio de 2020", "2021").
 type StoryMoment struct {
-	Label    string `json:"label" example:"Jade e Francisca" doc:"Caption written on the frame."`
+	Label string `json:"label" example:"Jade e Francisca" doc:"Caption written on the frame."`
 	// Named `date` because it started as one, and renaming a JSONB key costs a
 	// migration for nothing the couple would see. The site prints it verbatim
 	// as the small line under the caption, so anything fits: "2021", "o dia em
