@@ -98,7 +98,7 @@ type ListContributionsInput struct {
 type ModerateContributionInput struct {
 	ContributionID string `path:"contribution_id" format:"uuid"`
 	Body           struct {
-		Status string `json:"status" enum:"confirmed,cancelled" doc:"confirmed: the PIX landed. cancelled: it never will."`
+		Status string `json:"status" enum:"declared,confirmed,cancelled" doc:"confirmed: the PIX landed. cancelled: it never will. declared: back to waiting, for a decision made by mistake."`
 	}
 }
 

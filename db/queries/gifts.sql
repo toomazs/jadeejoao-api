@@ -77,17 +77,16 @@ where id = $1;
 
 -- Legal transitions only: declared -> confirmed, declared|confirmed -> cancelled.
 -- Cancelling clears confirmed_at; zero rows means unknown id OR illegal move.
+-- Any status may be corrected into any other, as long as it actually changes.
+-- The couple is the only one who knows whether the money arrived, and they can
+-- be wrong: a PIX cancelled by mistake used to be cancelled for good, because
+-- the transitions here only ever went one way.
 -- name: UpdateContributionStatus :one
 update contributions
 set status = @status::text,
     confirmed_at = case
         when @status::text = 'confirmed' then now()
-        when @status::text = 'cancelled' then null
-        else confirmed_at
+        else null
     end
-where id = @id
-  and (
-    (@status::text = 'confirmed' and status = 'declared')
-    or (@status::text = 'cancelled' and status in ('declared', 'confirmed'))
-  )
+where id = @id and status <> @status::text
 returning id, gift_id, group_id, contributor_name, amount_centavos, status, created_at, confirmed_at;

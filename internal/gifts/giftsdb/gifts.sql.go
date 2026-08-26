@@ -347,14 +347,9 @@ update contributions
 set status = $1::text,
     confirmed_at = case
         when $1::text = 'confirmed' then now()
-        when $1::text = 'cancelled' then null
-        else confirmed_at
+        else null
     end
-where id = $2
-  and (
-    ($1::text = 'confirmed' and status = 'declared')
-    or ($1::text = 'cancelled' and status in ('declared', 'confirmed'))
-  )
+where id = $2 and status <> $1::text
 returning id, gift_id, group_id, contributor_name, amount_centavos, status, created_at, confirmed_at
 `
 

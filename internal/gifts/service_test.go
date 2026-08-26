@@ -134,17 +134,14 @@ func (f *fakeRepo) ListContributions(_ context.Context, statusFilter string) ([]
 	return out, nil
 }
 
-// UpdateContributionStatus mirrors the SQL transition guard: confirm only
-// from declared, cancel from declared|confirmed.
+// UpdateContributionStatus mirrors the SQL guard: any status corrects into any
+// other, as long as it actually changes.
 func (f *fakeRepo) UpdateContributionStatus(_ context.Context, id uuid.UUID, status string) (Contribution, error) {
 	for i := range f.contribs {
 		if f.contribs[i].ID != id {
 			continue
 		}
-		current := f.contribs[i].Status
-		legal := (status == "confirmed" && current == "declared") ||
-			(status == "cancelled" && (current == "declared" || current == "confirmed"))
-		if !legal {
+		if f.contribs[i].Status == status {
 			return Contribution{}, ErrInvalidTransition
 		}
 		f.contribs[i].Status = status
@@ -441,5 +438,29 @@ func TestOverselIsStillGuardedByDeclared(t *testing.T) {
 	}
 	if err := checkAvailability(&quota, &max, 60000, 15000); !errors.Is(err, ErrNoUnitsLeft) {
 		t.Fatalf("fifth: got %v, want ErrNoUnitsLeft", err)
+	}
+}
+
+// TestAnyContributionStatusCanBeCorrected — the couple is the only one who
+// knows whether the money arrived, and they can be wrong. A PIX cancelled by
+// mistake used to be cancelled for good.
+func TestAnyContributionStatusCanBeCorrected(t *testing.T) {
+	repo, _, quotaGift := newGiftFixture()
+	svc := NewService(repo, testIdentity)
+	ctx := context.Background()
+
+	made, _, err := svc.Declare(ctx, quotaGift.ID, nil, "Yasmin", ptr[int64](15000))
+	if err != nil {
+		t.Fatalf("declare: %v", err)
+	}
+
+	for _, status := range []string{"cancelled", "confirmed", "declared", "confirmed"} {
+		got, err := svc.ModerateContribution(ctx, made.ID, status)
+		if err != nil {
+			t.Fatalf("→ %s: %v", status, err)
+		}
+		if got.Status != status {
+			t.Fatalf("→ %s: landed on %s", status, got.Status)
+		}
 	}
 }

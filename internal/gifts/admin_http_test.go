@@ -115,10 +115,17 @@ func TestAdminContributionModeration(t *testing.T) {
 		t.Fatalf("confirm = %d: %s", resp.Code, resp.Body.String())
 	}
 
-	// Enum blocks illegal transitions (back to declared).
+	// Back to waiting is allowed now: confirming the wrong line is a mistake
+	// somebody has to be able to take back.
 	resp = api.Patch(fmt.Sprintf("/contributions/%s", c.ID), map[string]any{"status": "declared"})
+	if resp.Code != http.StatusOK || !strings.Contains(resp.Body.String(), `"status":"declared"`) {
+		t.Fatalf("back to declared = %d: %s", resp.Code, resp.Body.String())
+	}
+
+	// A status that does not exist still is not one.
+	resp = api.Patch(fmt.Sprintf("/contributions/%s", c.ID), map[string]any{"status": "sla"})
 	if resp.Code != http.StatusUnprocessableEntity {
-		t.Fatalf("illegal status = %d, want 422", resp.Code)
+		t.Fatalf("unknown status = %d, want 422", resp.Code)
 	}
 
 	resp = api.Patch("/contributions/1e8f2c1a-0000-0000-0000-000000000000", map[string]any{"status": "cancelled"})

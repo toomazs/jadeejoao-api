@@ -1397,8 +1397,9 @@ components:
           readOnly: true
           type: string
         status:
-          description: "confirmed: the PIX landed. cancelled: it never will."
+          description: "confirmed: the PIX landed. cancelled: it never will. declared: back to waiting, for a decision made by mistake."
           enum:
+            - declared
             - confirmed
             - cancelled
           type: string
