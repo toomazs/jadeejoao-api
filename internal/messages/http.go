@@ -25,19 +25,19 @@ type MessageInput struct {
 type MessageCreatedOutput struct {
 	Body struct {
 		MessageID string `json:"message_id" format:"uuid"`
-		Status    string `json:"status" enum:"pending,approved,rejected" doc:"New messages always start pending; the couple moderates them in the admin."`
 	}
 }
 
 // RegisterPublic mounts the write-only public guestbook surface. There is no
-// public read endpoint in v1 — the couple reads messages in the admin.
+// public read endpoint — the couple reads messages in the panel, and nothing
+// a guest writes is ever shown to another guest (AD-14).
 func RegisterPublic(api huma.API, svc *Service) {
 	huma.Register(api, huma.Operation{
 		OperationID:   "create-message",
 		Method:        http.MethodPost,
 		Path:          platform.APIBase + "/messages",
 		Summary:       "Leave a message for the couple",
-		Description:   "Creates a pending guestbook message (Recado aos noivos). Publicly write-only: messages are read and moderated in the admin.",
+		Description:   "Creates a pending guestbook message (Recado aos noivos). Publicly write-only: the site never shows a message back, and the couple reads them in the panel.",
 		Tags:          []string{"messages"},
 		DefaultStatus: http.StatusCreated,
 	}, func(ctx context.Context, in *MessageInput) (*MessageCreatedOutput, error) {
@@ -59,7 +59,6 @@ func RegisterPublic(api huma.API, svc *Service) {
 		}
 		out := &MessageCreatedOutput{}
 		out.Body.MessageID = msg.ID.String()
-		out.Body.Status = msg.Status
 		return out, nil
 	})
 }

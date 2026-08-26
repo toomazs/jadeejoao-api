@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -40,34 +39,23 @@ func (r *pgRepo) Insert(ctx context.Context, groupID *uuid.UUID, authorName, bod
 	if err != nil {
 		return Message{}, err
 	}
-	return fromRow(row.ID, row.GroupID, row.AuthorName, row.Body, row.Status, row.CreatedAt), nil
+	return fromRow(row.ID, row.GroupID, row.AuthorName, row.Body, row.CreatedAt), nil
 }
 
-func (r *pgRepo) List(ctx context.Context, statusFilter string) ([]Message, error) {
-	rows, err := r.q.ListMessages(ctx, statusFilter)
+func (r *pgRepo) List(ctx context.Context) ([]Message, error) {
+	rows, err := r.q.ListMessages(ctx)
 	if err != nil {
 		return nil, err
 	}
 	out := make([]Message, len(rows))
 	for i, row := range rows {
-		out[i] = fromRow(row.ID, row.GroupID, row.AuthorName, row.Body, row.Status, row.CreatedAt)
+		out[i] = fromRow(row.ID, row.GroupID, row.AuthorName, row.Body, row.CreatedAt)
 	}
 	return out, nil
 }
 
-func (r *pgRepo) UpdateStatus(ctx context.Context, id uuid.UUID, status string) (Message, error) {
-	row, err := r.q.UpdateMessageStatus(ctx, messagesdb.UpdateMessageStatusParams{ID: id, Status: status})
-	if errors.Is(err, pgx.ErrNoRows) {
-		return Message{}, ErrNotFound
-	}
-	if err != nil {
-		return Message{}, err
-	}
-	return fromRow(row.ID, row.GroupID, row.AuthorName, row.Body, row.Status, row.CreatedAt), nil
-}
-
-func fromRow(id uuid.UUID, groupID uuid.NullUUID, author, body, status string, createdAt time.Time) Message {
-	m := Message{ID: id, AuthorName: author, Body: body, Status: status, CreatedAt: createdAt}
+func fromRow(id uuid.UUID, groupID uuid.NullUUID, author, body string, createdAt time.Time) Message {
+	m := Message{ID: id, AuthorName: author, Body: body, CreatedAt: createdAt}
 	if groupID.Valid {
 		gid := groupID.UUID
 		m.GroupID = &gid

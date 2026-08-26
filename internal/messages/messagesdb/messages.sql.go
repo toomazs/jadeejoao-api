@@ -7,6 +7,7 @@ package messagesdb
 
 import (
 	"context"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -14,7 +15,7 @@ import (
 const insertMessage = `-- name: InsertMessage :one
 insert into messages (group_id, author_name, body)
 values ($1, $2, $3)
-returning id, group_id, author_name, body, status, created_at
+returning id, group_id, author_name, body, created_at
 `
 
 type InsertMessageParams struct {
@@ -23,42 +24,55 @@ type InsertMessageParams struct {
 	Body       string
 }
 
-func (q *Queries) InsertMessage(ctx context.Context, arg InsertMessageParams) (Message, error) {
+type InsertMessageRow struct {
+	ID         uuid.UUID
+	GroupID    uuid.NullUUID
+	AuthorName string
+	Body       string
+	CreatedAt  time.Time
+}
+
+func (q *Queries) InsertMessage(ctx context.Context, arg InsertMessageParams) (InsertMessageRow, error) {
 	row := q.db.QueryRow(ctx, insertMessage, arg.GroupID, arg.AuthorName, arg.Body)
-	var i Message
+	var i InsertMessageRow
 	err := row.Scan(
 		&i.ID,
 		&i.GroupID,
 		&i.AuthorName,
 		&i.Body,
-		&i.Status,
 		&i.CreatedAt,
 	)
 	return i, err
 }
 
 const listMessages = `-- name: ListMessages :many
-select id, group_id, author_name, body, status, created_at
+select id, group_id, author_name, body, created_at
 from messages
-where ($1::text = '' or status = $1::text)
 order by created_at desc
 `
 
-func (q *Queries) ListMessages(ctx context.Context, statusFilter string) ([]Message, error) {
-	rows, err := q.db.Query(ctx, listMessages, statusFilter)
+type ListMessagesRow struct {
+	ID         uuid.UUID
+	GroupID    uuid.NullUUID
+	AuthorName string
+	Body       string
+	CreatedAt  time.Time
+}
+
+func (q *Queries) ListMessages(ctx context.Context) ([]ListMessagesRow, error) {
+	rows, err := q.db.Query(ctx, listMessages)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []Message
+	items := []ListMessagesRow{}
 	for rows.Next() {
-		var i Message
+		var i ListMessagesRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.GroupID,
 			&i.AuthorName,
 			&i.Body,
-			&i.Status,
 			&i.CreatedAt,
 		); err != nil {
 			return nil, err
@@ -69,30 +83,4 @@ func (q *Queries) ListMessages(ctx context.Context, statusFilter string) ([]Mess
 		return nil, err
 	}
 	return items, nil
-}
-
-const updateMessageStatus = `-- name: UpdateMessageStatus :one
-update messages
-set status = $2
-where id = $1
-returning id, group_id, author_name, body, status, created_at
-`
-
-type UpdateMessageStatusParams struct {
-	ID     uuid.UUID
-	Status string
-}
-
-func (q *Queries) UpdateMessageStatus(ctx context.Context, arg UpdateMessageStatusParams) (Message, error) {
-	row := q.db.QueryRow(ctx, updateMessageStatus, arg.ID, arg.Status)
-	var i Message
-	err := row.Scan(
-		&i.ID,
-		&i.GroupID,
-		&i.AuthorName,
-		&i.Body,
-		&i.Status,
-		&i.CreatedAt,
-	)
-	return i, err
 }

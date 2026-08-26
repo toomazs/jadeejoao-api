@@ -20,15 +20,11 @@ func (r *stubRepo) Insert(_ context.Context, groupID *uuid.UUID, authorName, bod
 		GroupID:    groupID,
 		AuthorName: authorName,
 		Body:       body,
-		Status:     "pending",
 		CreatedAt:  time.Now(),
 	}
 	return r.inserted, nil
 }
-func (r *stubRepo) List(context.Context, string) ([]Message, error) { return nil, nil }
-func (r *stubRepo) UpdateStatus(context.Context, uuid.UUID, string) (Message, error) {
-	return Message{}, nil
-}
+func (r *stubRepo) List(context.Context) ([]Message, error) { return nil, nil }
 
 type fakeMailer struct {
 	sent     chan [2]string

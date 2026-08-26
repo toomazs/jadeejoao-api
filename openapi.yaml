@@ -1223,16 +1223,8 @@ components:
         message_id:
           format: uuid
           type: string
-        status:
-          description: New messages always start pending; the couple moderates them in the admin.
-          enum:
-            - pending
-            - approved
-            - rejected
-          type: string
       required:
         - message_id
-        - status
       type: object
     MessageInputBody:
       additionalProperties: false
@@ -1267,13 +1259,6 @@ components:
     MessageView:
       additionalProperties: false
       properties:
-        $schema:
-          description: A URL to the JSON Schema for this object.
-          examples:
-            - https://example.com/schemas/MessageView.json
-          format: uri
-          readOnly: true
-          type: string
         author_name:
           type: string
         body:
@@ -1287,17 +1272,10 @@ components:
         message_id:
           format: uuid
           type: string
-        status:
-          enum:
-            - pending
-            - approved
-            - rejected
-          type: string
       required:
         - message_id
         - author_name
         - body
-        - status
         - created_at
       type: object
     MessagesIntroPayload:
@@ -1353,24 +1331,6 @@ components:
           enum:
             - confirmed
             - cancelled
-          type: string
-      required:
-        - status
-      type: object
-    ModerateMessageInputBody:
-      additionalProperties: false
-      properties:
-        $schema:
-          description: A URL to the JSON Schema for this object.
-          examples:
-            - https://example.com/schemas/ModerateMessageInputBody.json
-          format: uri
-          readOnly: true
-          type: string
-        status:
-          enum:
-            - approved
-            - rejected
           type: string
       required:
         - status
@@ -2439,19 +2399,8 @@ paths:
         - admin
   /api/v1/admin/messages:
     get:
+      description: "Every message, newest first. There is nothing to filter by: the guestbook is write-only in public (AD-14), so a message is never shown to anyone but them."
       operationId: admin-list-messages
-      parameters:
-        - description: Filter by status; omit for all.
-          explode: false
-          in: query
-          name: status
-          schema:
-            description: Filter by status; omit for all.
-            enum:
-              - pending
-              - approved
-              - rejected
-            type: string
       responses:
         "200":
           content:
@@ -2468,42 +2417,6 @@ paths:
       security:
         - supabaseJWT: []
       summary: List guestbook messages
-      tags:
-        - messages
-        - admin
-  /api/v1/admin/messages/{message_id}:
-    patch:
-      description: Moderation exists so a future public guestbook wall is purely additive (AD-14).
-      operationId: admin-moderate-message
-      parameters:
-        - in: path
-          name: message_id
-          required: true
-          schema:
-            format: uuid
-            type: string
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/ModerateMessageInputBody"
-        required: true
-      responses:
-        "200":
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/MessageView"
-          description: OK
-        default:
-          content:
-            application/problem+json:
-              schema:
-                $ref: "#/components/schemas/ErrorModel"
-          description: Error
-      security:
-        - supabaseJWT: []
-      summary: Approve or reject a message
       tags:
         - messages
         - admin
@@ -2944,7 +2857,7 @@ paths:
         - instagram
   /api/v1/messages:
     post:
-      description: "Creates a pending guestbook message (Recado aos noivos). Publicly write-only: messages are read and moderated in the admin."
+      description: "Creates a pending guestbook message (Recado aos noivos). Publicly write-only: the site never shows a message back, and the couple reads them in the panel."
       operationId: create-message
       requestBody:
         content:

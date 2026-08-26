@@ -15,29 +15,13 @@ type fakeRepo struct {
 }
 
 func (f *fakeRepo) Insert(_ context.Context, groupID *uuid.UUID, authorName, body string) (Message, error) {
-	m := Message{ID: uuid.New(), GroupID: groupID, AuthorName: authorName, Body: body, Status: "pending"}
+	m := Message{ID: uuid.New(), GroupID: groupID, AuthorName: authorName, Body: body}
 	f.inserted = append(f.inserted, m)
 	return m, nil
 }
 
-func (f *fakeRepo) List(_ context.Context, statusFilter string) ([]Message, error) {
-	var out []Message
-	for _, m := range f.inserted {
-		if statusFilter == "" || m.Status == statusFilter {
-			out = append(out, m)
-		}
-	}
-	return out, nil
-}
-
-func (f *fakeRepo) UpdateStatus(_ context.Context, id uuid.UUID, status string) (Message, error) {
-	for i := range f.inserted {
-		if f.inserted[i].ID == id {
-			f.inserted[i].Status = status
-			return f.inserted[i], nil
-		}
-	}
-	return Message{}, ErrNotFound
+func (f *fakeRepo) List(_ context.Context) ([]Message, error) {
+	return f.inserted, nil
 }
 
 func TestCreateMessageEndpoint(t *testing.T) {
@@ -52,8 +36,10 @@ func TestCreateMessageEndpoint(t *testing.T) {
 	if resp.Code != http.StatusCreated {
 		t.Fatalf("create = %d: %s", resp.Code, resp.Body.String())
 	}
-	if !strings.Contains(resp.Body.String(), `"status":"pending"`) {
-		t.Fatalf("message must start pending: %s", resp.Body.String())
+	// The response carries the id and nothing else about the message's fate:
+	// there is no fate. It is written down and the couple reads it.
+	if strings.Contains(resp.Body.String(), `"status"`) {
+		t.Fatalf("a message has no status to report: %s", resp.Body.String())
 	}
 	if len(repo.inserted) != 1 || repo.inserted[0].AuthorName != "Eduardo Silva" {
 		t.Fatalf("unexpected insert state: %+v", repo.inserted)

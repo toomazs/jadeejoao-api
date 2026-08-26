@@ -81,7 +81,6 @@ type Message struct {
 	GroupID    uuid.NullUUID
 	AuthorName string
 	Body       string
-	Status     string
 	CreatedAt  time.Time
 }
 
