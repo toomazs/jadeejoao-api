@@ -108,7 +108,11 @@ type PersonPayload struct {
 // ("12 de maio de 2020", "2021").
 type StoryMoment struct {
 	Label    string `json:"label" example:"Jade e Francisca" doc:"Caption written on the frame."`
-	Date     string `json:"date,omitempty" example:"12 de maio de 2020" doc:"Freeform date line under the caption."`
+	// Named `date` because it started as one, and renaming a JSONB key costs a
+	// migration for nothing the couple would see. The site prints it verbatim
+	// as the small line under the caption, so anything fits: "2021", "o dia em
+	// que a Catarina chegou". The panel calls it Subtítulo, which is the truth.
+	Date     string `json:"date,omitempty" example:"12 de maio de 2020" doc:"Free line printed under the caption. Not parsed as a date."`
 	ImageURL string `json:"image_url" format:"uri" doc:"Public CDN photo."`
 }
 
