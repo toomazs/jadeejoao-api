@@ -2306,7 +2306,7 @@ paths:
             schema:
               properties:
                 alt:
-                  description: Optional accessibility text.
+                  description: "Accessibility text. Optional, but worth filling: it is what a screen reader says in place of the photo."
                   type: string
                 file:
                   contentEncoding: binary
@@ -2315,7 +2315,6 @@ paths:
                   type: string
               required:
                 - file
-                - alt
               type: object
       responses:
         "201":

@@ -23,7 +23,10 @@ type MediaView struct {
 // UploadForm is the multipart upload payload.
 type UploadForm struct {
 	File huma.FormFile `form:"file" contentType:"image/jpeg,image/png,image/webp,image/gif,image/avif" required:"true"`
-	Alt  string        `form:"alt" doc:"Optional accessibility text."`
+	// required:"false" is not redundant: huma treats a plain string form field
+	// as required, which contradicted this doc and made every upload without
+	// alt text answer 422.
+	Alt string `form:"alt" required:"false" doc:"Accessibility text. Optional, but worth filling: it is what a screen reader says in place of the photo."`
 }
 
 // UploadInput wraps the multipart form.

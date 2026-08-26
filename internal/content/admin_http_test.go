@@ -10,7 +10,7 @@ import (
 
 func TestAdminSectionEndpoints(t *testing.T) {
 	repo := &fakeRepo{rows: []Row{
-		{Slug: "hero", Payload: []byte(`{"title":"Jade & João","couple_names":"Jade & João","event_datetime":"2027-08-07T15:00:00-03:00","city_label":"Atibaia – SP"}`), Enabled: true},
+		{Slug: "hero", Payload: []byte(`{"couple_names":"Jade & João","event_datetime":"2027-08-07T15:00:00-03:00","city_label":"Atibaia – SP"}`), Enabled: true},
 		{Slug: "our_story", Payload: []byte(`{"title":"Nossa História"}`), Enabled: false},
 	}}
 	_, api := humatest.New(t)
@@ -38,12 +38,15 @@ func TestAdminSectionEndpoints(t *testing.T) {
 		t.Fatalf("repo not updated: %+v", repo.updated)
 	}
 
-	// Payload field not matching the slug: 422 PT-BR.
+	// Payload field not matching the slug: 422 PT-BR. The hero payload is
+	// deliberately valid on its own — what must fail is it arriving at the
+	// rsvp slug, not the shape of the object.
 	resp = api.Put("/sections/rsvp", map[string]any{
 		"enabled": true,
 		"hero": map[string]any{
-			"title": "x", "couple_names": "a",
-			"event_datetime": "2027-08-07T15:00:00-03:00", "city_label": "c",
+			"couple_names":   "a",
+			"event_datetime": "2027-08-07T15:00:00-03:00",
+			"city_label":     "c",
 		},
 	})
 	if resp.Code != http.StatusUnprocessableEntity {
