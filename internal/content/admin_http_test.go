@@ -10,7 +10,7 @@ import (
 
 func TestAdminSectionEndpoints(t *testing.T) {
 	repo := &fakeRepo{rows: []Row{
-		{Slug: "hero", Payload: []byte(`{"couple_names":"Jade & João","event_datetime":"2027-08-07T15:00:00-03:00","city_label":"Atibaia – SP"}`), Enabled: true},
+		{Slug: "hero", Payload: []byte(`{"event_date":"2027-08-07","city_label":"Atibaia – SP"}`), Enabled: true},
 		{Slug: "our_story", Payload: []byte(`{"title":"Nossa História"}`), Enabled: false},
 	}}
 	_, api := humatest.New(t)
@@ -44,9 +44,8 @@ func TestAdminSectionEndpoints(t *testing.T) {
 	resp = api.Put("/sections/rsvp", map[string]any{
 		"enabled": true,
 		"hero": map[string]any{
-			"couple_names":   "a",
-			"event_datetime": "2027-08-07T15:00:00-03:00",
-			"city_label":     "c",
+			"event_date": "2027-08-07",
+			"city_label": "c",
 		},
 	})
 	if resp.Code != http.StatusUnprocessableEntity {

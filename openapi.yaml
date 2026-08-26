@@ -1014,24 +1014,18 @@ components:
           examples:
             - Atibaia – SP
           type: string
-        couple_names:
-          description: Read by screen readers; the visible names are the wordmark image.
+        event_date:
+          description: Dia do casamento.
           examples:
-            - Jade & João
-          type: string
-        event_datetime:
-          description: Ceremony start, ISO 8601 with America/Sao_Paulo offset.
-          examples:
-            - "2027-08-07T15:00:00-03:00"
-          format: date-time
+            - "2027-08-07"
+          format: date
           type: string
         hero_image_url:
           description: The full-bleed photograph behind the wordmark.
           format: uri
           type: string
       required:
-        - couple_names
-        - event_datetime
+        - event_date
         - city_label
       type: object
     ImportOutputBody:

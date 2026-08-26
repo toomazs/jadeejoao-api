@@ -22,7 +22,7 @@ func TestPublicContentOrdersAndFilters(t *testing.T) {
 	repo := &fakeRepo{rows: []Row{
 		// Deliberately out of render order, with one disabled.
 		{Slug: "rsvp", Payload: []byte(`{"title":"Confirme","deadline":"2027-07-07"}`), Enabled: true},
-		{Slug: "hero", Payload: []byte(`{"title":"Jade & João","couple_names":"Jade & João","event_datetime":"2027-08-07T15:00:00-03:00","city_label":"Atibaia – SP"}`), Enabled: true},
+		{Slug: "hero", Payload: []byte(`{"event_date":"2027-08-07","city_label":"Atibaia – SP"}`), Enabled: true},
 		{Slug: "our_story", Payload: []byte(`{"title":"Nossa História"}`), Enabled: false},
 	}}
 	svc := NewService(repo)
@@ -37,7 +37,7 @@ func TestPublicContentOrdersAndFilters(t *testing.T) {
 	if sections[0].Slug != "hero" || sections[1].Slug != "rsvp" {
 		t.Fatalf("wrong order: %s, %s (want hero, rsvp)", sections[0].Slug, sections[1].Slug)
 	}
-	if sections[0].Hero == nil || sections[0].Hero.CoupleNames != "Jade & João" {
+	if sections[0].Hero == nil || sections[0].Hero.EventDate != "2027-08-07" {
 		t.Fatalf("hero payload not decoded: %+v", sections[0])
 	}
 	if sections[1].RSVP == nil || sections[1].RSVP.Deadline != "2027-07-07" {

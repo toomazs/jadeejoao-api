@@ -78,11 +78,20 @@ type Lodging struct {
 // in and never see anywhere. It carried both, plus a milestone triptych the
 // site stopped drawing, until 00025 took them out.
 type HeroPayload struct {
-	CoupleNames   string `json:"couple_names" example:"Jade & João" doc:"Read by screen readers; the visible names are the wordmark image."`
-	EventDatetime string `json:"event_datetime" format:"date-time" example:"2027-08-07T15:00:00-03:00" doc:"Ceremony start, ISO 8601 with America/Sao_Paulo offset."`
-	CityLabel     string `json:"city_label" example:"Atibaia – SP"`
-	HeroImageURL  string `json:"hero_image_url,omitempty" format:"uri" doc:"The full-bleed photograph behind the wordmark."`
+	// EventDate is the wedding day, and only the day. The site prints the date
+	// in three places and the time in none, so the panel has no business
+	// asking for one — the countdown lands on the ceremony hour through
+	// CeremonyHour below, which the couple does not need to see.
+	EventDate    string `json:"event_date" format:"date" example:"2027-08-07" doc:"Dia do casamento."`
+	CityLabel    string `json:"city_label" example:"Atibaia – SP"`
+	HeroImageURL string `json:"hero_image_url,omitempty" format:"uri" doc:"The full-bleed photograph behind the wordmark."`
 }
+
+// CeremonyHour is when the day starts, in the venue's timezone. Fixed here
+// rather than in the payload: it is never shown, it is not changing, and as an
+// editable field it was only a way to move the countdown by fifteen hours by
+// accident.
+const CeremonyHour = "15:00:00-03:00"
 
 // PersonPayload presents one of the couple in the story-film chapters: the
 // chapter portrait, a short bio, and the Instagram handle the site pulls
