@@ -802,31 +802,6 @@ components:
       required:
         - gifts
       type: object
-    GoodPracticesPayload:
-      additionalProperties: false
-      properties:
-        body:
-          description: Rich text as Markdown.
-          type: string
-        images:
-          description: Public CDN image URLs.
-          items:
-            type: string
-          type:
-            - array
-            - "null"
-        rules:
-          items:
-            type: string
-          type:
-            - array
-            - "null"
-        title:
-          description: Section heading shown on the site.
-          type: string
-      required:
-        - title
-      type: object
     GroupDashboardView:
       additionalProperties: false
       properties:
@@ -1680,8 +1655,6 @@ components:
           $ref: "#/components/schemas/GettingTherePayload"
         gifts_intro:
           $ref: "#/components/schemas/GiftsIntroPayload"
-        good_practices:
-          $ref: "#/components/schemas/GoodPracticesPayload"
         hero:
           $ref: "#/components/schemas/HeroPayload"
         messages_intro:
@@ -1701,7 +1674,6 @@ components:
             - stay
             - gifts_intro
             - dress_code
-            - good_practices
             - messages_intro
           type: string
         stay:
@@ -2495,7 +2467,6 @@ paths:
               - stay
               - gifts_intro
               - dress_code
-              - good_practices
               - messages_intro
             type: string
       requestBody:

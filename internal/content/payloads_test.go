@@ -10,8 +10,8 @@ import (
 // order, the decode/update switches, the SlugEnum constant, and the enum tag
 // on Section.Slug must all agree. Migration 00002 seeds the same set.
 func TestSlugSetsStayInSync(t *testing.T) {
-	if len(RenderOrder) != 10 {
-		t.Fatalf("closed set must have 10 slugs, got %d", len(RenderOrder))
+	if len(RenderOrder) != 9 {
+		t.Fatalf("closed set must have 9 slugs, got %d", len(RenderOrder))
 	}
 
 	joined := strings.Join(RenderOrder, ",")

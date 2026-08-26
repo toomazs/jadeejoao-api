@@ -19,7 +19,7 @@ type SectionsOutput struct {
 // SectionUpdateInput is the admin edit for one slug. The slug set is closed:
 // update-only, no create, no delete.
 type SectionUpdateInput struct {
-	Slug string `path:"slug" enum:"hero,our_story,big_day,rsvp,getting_there,stay,gifts_intro,dress_code,good_practices,messages_intro"`
+	Slug string `path:"slug" enum:"hero,our_story,big_day,rsvp,getting_there,stay,gifts_intro,dress_code,messages_intro"`
 	// Body reuses Section; its slug field is ignored — the path decides.
 	Body Section
 }

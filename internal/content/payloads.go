@@ -20,12 +20,11 @@ var RenderOrder = []string{
 	"stay",
 	"gifts_intro",
 	"dress_code",
-	"good_practices",
 	"messages_intro",
 }
 
 // SlugEnum is the enum tag value shared by every slug field in this API.
-const SlugEnum = "hero,our_story,big_day,rsvp,getting_there,stay,gifts_intro,dress_code,good_practices,messages_intro"
+const SlugEnum = "hero,our_story,big_day,rsvp,getting_there,stay,gifts_intro,dress_code,messages_intro"
 
 // IsValidSlug reports whether slug belongs to the closed section set.
 func IsValidSlug(slug string) bool {
@@ -197,12 +196,6 @@ type DressCodePayload struct {
 	Looks  []DressCodeLook `json:"looks,omitempty" doc:"Reference looks, rendered alternating sides."`
 }
 
-// GoodPracticesPayload lists the couple's playful house rules.
-type GoodPracticesPayload struct {
-	SectionBase
-	Rules []string `json:"rules,omitempty"`
-}
-
 // MessagesIntroPayload introduces the guestbook section.
 type MessagesIntroPayload struct {
 	SectionBase
@@ -215,7 +208,7 @@ type MessagesIntroPayload struct {
 // Slug is omitempty because the same struct is the admin update body, where
 // the path — not the body — decides the slug.
 type Section struct {
-	Slug    string `json:"slug,omitempty" enum:"hero,our_story,big_day,rsvp,getting_there,stay,gifts_intro,dress_code,good_practices,messages_intro" doc:"Always present in responses; ignored in the section-update request body (the path decides)."`
+	Slug    string `json:"slug,omitempty" enum:"hero,our_story,big_day,rsvp,getting_there,stay,gifts_intro,dress_code,messages_intro" doc:"Always present in responses; ignored in the section-update request body (the path decides)."`
 	Enabled bool   `json:"enabled" doc:"Disabled sections are hidden from the public site (server-side)."`
 
 	Hero          *HeroPayload          `json:"hero,omitempty"`
@@ -226,7 +219,6 @@ type Section struct {
 	Stay          *StayPayload          `json:"stay,omitempty"`
 	GiftsIntro    *GiftsIntroPayload    `json:"gifts_intro,omitempty"`
 	DressCode     *DressCodePayload     `json:"dress_code,omitempty"`
-	GoodPractices *GoodPracticesPayload `json:"good_practices,omitempty"`
 	MessagesIntro *MessagesIntroPayload `json:"messages_intro,omitempty"`
 }
 
@@ -270,9 +262,6 @@ func (s *Section) payloadPtr(slug string) any {
 	case "dress_code":
 		s.DressCode = &DressCodePayload{}
 		return s.DressCode
-	case "good_practices":
-		s.GoodPractices = &GoodPracticesPayload{}
-		return s.GoodPractices
 	case "messages_intro":
 		s.MessagesIntro = &MessagesIntroPayload{}
 		return s.MessagesIntro
@@ -315,10 +304,6 @@ func (s *Section) payloadValue(slug string) any {
 	case "dress_code":
 		if s.DressCode != nil {
 			return s.DressCode
-		}
-	case "good_practices":
-		if s.GoodPractices != nil {
-			return s.GoodPractices
 		}
 	case "messages_intro":
 		if s.MessagesIntro != nil {
