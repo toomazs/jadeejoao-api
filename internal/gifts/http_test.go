@@ -25,7 +25,9 @@ func TestListGiftsEndpoint(t *testing.T) {
 		t.Fatalf("list = %d: %s", resp.Code, resp.Body.String())
 	}
 	body := resp.Body.String()
-	if !strings.Contains(body, `"units_left":1`) || !strings.Contains(body, `"declared_centavos":45000`) {
+	// The declared total is still reported — the panel needs it to know what is
+	// waiting — but it does not eat a quota. Four are still there to give.
+	if !strings.Contains(body, `"units_left":4`) || !strings.Contains(body, `"declared_centavos":45000`) {
 		t.Fatalf("computed progress missing: %s", body)
 	}
 }

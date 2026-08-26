@@ -27,8 +27,8 @@ type GiftView struct {
 	GoalCentavos      *int64  `json:"goal_centavos,omitempty" doc:"Goal amount in centavos (BRL). PIX gifts only."`
 	QuotaCentavos     *int64  `json:"quota_centavos,omitempty" doc:"Fixed quota unit in centavos; contributions must be multiples. Null means free amount. PIX gifts only."`
 	MaxUnits          *int32  `json:"max_units,omitempty" doc:"Maximum sellable quota units; null means unlimited. PIX gifts only."`
-	UnitsLeft         *int64  `json:"units_left,omitempty" doc:"Remaining quota units (only for unit-limited PIX gifts). Optimistic: declared + confirmed consume units."`
-	DeclaredCentavos  int64   `json:"declared_centavos" doc:"Sum of declared (not yet confirmed) contributions. Always 0 for link gifts."`
+	UnitsLeft         *int64  `json:"units_left,omitempty" doc:"Remaining quota units (only for unit-limited PIX gifts). Counts confirmed contributions only — a declared PIX is a claim, not money."`
+	DeclaredCentavos  int64   `json:"declared_centavos" doc:"Sum of declared contributions still waiting for the couple to confirm them. Not shown as received."`
 	ConfirmedCentavos int64   `json:"confirmed_centavos" doc:"Sum of admin-confirmed contributions. Always 0 for link gifts."`
 	Sort              int32   `json:"sort"`
 }

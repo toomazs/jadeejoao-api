@@ -74,13 +74,23 @@ type Gift struct {
 }
 
 // UnitsLeft returns the remaining quota units, or nil when the gift is not
-// unit-limited. Public progress is optimistic: declared + confirmed consume
-// units; cancelled never counts.
+// unit-limited.
+//
+// Only confirmed contributions count. A declaration is somebody saying they
+// sent a PIX; the couple then looks at the bank and says whether it arrived.
+// Counting the claim made the page announce money nobody had received yet —
+// a guest saw three quotas left of a dinner that was still whole.
+//
+// The guard against overselling is deliberately *not* this number: it still
+// holds a quota while a declaration is waiting, so the last one cannot be
+// claimed twice by two people who are both mid-payment. The two questions are
+// different — "how much has arrived" and "how much may still be promised" —
+// and answering both with one number is what put the first one wrong.
 func (g Gift) UnitsLeft() *int64 {
 	if g.MaxUnits == nil || g.QuotaCentavos == nil || *g.QuotaCentavos == 0 {
 		return nil
 	}
-	used := (g.DeclaredCentavos + g.ConfirmedCentavos) / *g.QuotaCentavos
+	used := g.ConfirmedCentavos / *g.QuotaCentavos
 	left := int64(*g.MaxUnits) - used
 	if left < 0 {
 		left = 0

@@ -224,8 +224,10 @@ func TestCheckAvailabilityLastUnit(t *testing.T) {
 
 func TestUnitsLeft(t *testing.T) {
 	_, _, quotaGift := newGiftFixture()
-	if left := quotaGift.UnitsLeft(); left == nil || *left != 1 {
-		t.Fatalf("UnitsLeft = %v, want 1", left)
+	// The fixture's three quotas are declared and none confirmed, so nothing
+	// has arrived and all four are still there to give.
+	if left := quotaGift.UnitsLeft(); left == nil || *left != 4 {
+		t.Fatalf("UnitsLeft = %v, want 4", left)
 	}
 	free := Gift{GoalCentavos: ptr[int64](20000)}
 	if left := free.UnitsLeft(); left != nil {
@@ -399,5 +401,45 @@ func TestDeclareNoUnitsLeft(t *testing.T) {
 	}
 	if repo.inserts != 0 {
 		t.Fatal("rejected declare must not write")
+	}
+}
+
+// TestUnitsLeftIgnoresDeclared — the page says how much has arrived, and a
+// declaration has not arrived. It is somebody saying they sent a PIX; the
+// couple then looks at the bank. Counting the claim made a dinner of four
+// quotas announce three left while it was still whole.
+func TestUnitsLeftIgnoresDeclared(t *testing.T) {
+	quota := int64(15000)
+	max := int32(4)
+	gift := Gift{QuotaCentavos: &quota, MaxUnits: &max}
+
+	if left := gift.UnitsLeft(); left == nil || *left != 4 {
+		t.Fatalf("untouched gift: got %v, want 4", left)
+	}
+
+	gift.DeclaredCentavos = 30000
+	if left := gift.UnitsLeft(); left == nil || *left != 4 {
+		t.Fatalf("two declared, none confirmed: got %v, want 4 — nothing has arrived", left)
+	}
+
+	gift.ConfirmedCentavos = 15000
+	if left := gift.UnitsLeft(); left == nil || *left != 3 {
+		t.Fatalf("one confirmed: got %v, want 3", left)
+	}
+}
+
+// TestOverselIsStillGuardedByDeclared — the display and the guard answer two
+// different questions. While somebody is paying, their quota is held, so the
+// last one cannot be promised to two people at once.
+func TestOverselIsStillGuardedByDeclared(t *testing.T) {
+	quota := int64(15000)
+	max := int32(4)
+	// Three declared, none confirmed: the page shows four left, and a fourth
+	// declaration is still fine — but a fifth is not.
+	if err := checkAvailability(&quota, &max, 45000, 15000); err != nil {
+		t.Fatalf("fourth quota should still be available: %v", err)
+	}
+	if err := checkAvailability(&quota, &max, 60000, 15000); !errors.Is(err, ErrNoUnitsLeft) {
+		t.Fatalf("fifth: got %v, want ErrNoUnitsLeft", err)
 	}
 }

@@ -30,7 +30,7 @@ components:
           format: int64
           type: integer
         declared_centavos:
-          description: Sum of declared (not yet confirmed) contributions. Always 0 for link gifts.
+          description: Sum of declared contributions still waiting for the couple to confirm them. Not shown as received.
           format: int64
           type: integer
         description:
@@ -76,7 +76,7 @@ components:
             - Para o João fazer a barba
           type: string
         units_left:
-          description: "Remaining quota units (only for unit-limited PIX gifts). Optimistic: declared + confirmed consume units."
+          description: Remaining quota units (only for unit-limited PIX gifts). Counts confirmed contributions only — a declared PIX is a claim, not money.
           format: int64
           type: integer
       required:
@@ -726,7 +726,7 @@ components:
           format: int64
           type: integer
         declared_centavos:
-          description: Sum of declared (not yet confirmed) contributions. Always 0 for link gifts.
+          description: Sum of declared contributions still waiting for the couple to confirm them. Not shown as received.
           format: int64
           type: integer
         description:
@@ -772,7 +772,7 @@ components:
             - Para o João fazer a barba
           type: string
         units_left:
-          description: "Remaining quota units (only for unit-limited PIX gifts). Optimistic: declared + confirmed consume units."
+          description: Remaining quota units (only for unit-limited PIX gifts). Counts confirmed contributions only — a declared PIX is a claim, not money.
           format: int64
           type: integer
       required:
