@@ -693,6 +693,24 @@ func TestCompanionChangesRefusedAfterTheDeadline(t *testing.T) {
 
 // --- the panel's list-repair surface ---
 
+func (f *fakeRepo) CreateGuest(_ context.Context, edit GuestEdit, into *uuid.UUID) (uuid.UUID, error) {
+	for _, m := range f.members {
+		if Normalize(m.FullName) == Normalize(edit.FullName) {
+			return uuid.Nil, ErrNameTaken
+		}
+	}
+	id := uuid.New()
+	f.members = append(f.members, Member{
+		ID:        id,
+		FullName:  edit.FullName,
+		Category:  edit.Category,
+		Notes:     edit.Notes,
+		IsPrimary: into == nil,
+		Attending: "pending",
+	})
+	return id, nil
+}
+
 func (f *fakeRepo) UpdateGuestDetails(_ context.Context, guestID uuid.UUID, edit GuestEdit) error {
 	for _, m := range f.members {
 		if m.ID != guestID && Normalize(m.FullName) == Normalize(edit.FullName) {
@@ -803,5 +821,60 @@ func TestSetPrimaryLeavesExactlyOne(t *testing.T) {
 	}
 	if primaries != 1 || !repo.members[1].IsPrimary {
 		t.Fatalf("want exactly one primary and it to be the new one, got %+v", repo.members)
+	}
+}
+
+// TestCreateGuestAloneIsTheirOwnPrimary — somebody typed in by hand has to end
+// up in the shape every imported guest starts in, or they arrive on the list
+// unable to answer for themselves.
+func TestCreateGuestAloneIsTheirOwnPrimary(t *testing.T) {
+	svc := NewService(&fakeRepo{}, nil, nil, nil)
+	id, err := svc.CreateGuest(context.Background(), GuestEdit{FullName: "  Tia   Selma  "}, nil)
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	repo := svc.repo.(*fakeRepo)
+	person := repo.members[len(repo.members)-1]
+	if person.ID != id {
+		t.Fatalf("returned id %s, stored %s", id, person.ID)
+	}
+	// The name is tidied on the way in, the same as an edit does it.
+	if person.FullName != "Tia Selma" {
+		t.Fatalf("name not tidied: %q", person.FullName)
+	}
+	if !person.IsPrimary {
+		t.Fatal("alone, they must be the primary of their own invitation")
+	}
+}
+
+// TestCreateGuestRefusesWhatEditRefuses — the two doors into the same table
+// must not accept different people.
+func TestCreateGuestRefusesWhatEditRefuses(t *testing.T) {
+	svc := NewService(&fakeRepo{}, nil, nil, nil)
+	ctx := context.Background()
+	bad := "nope"
+	cases := map[string]GuestEdit{
+		"sem nome":        {FullName: "   "},
+		"faixa inválida":  {FullName: "Alguém", Category: &bad},
+		"gênero inválido": {FullName: "Alguém", Gender: &bad},
+		"lado inválido":   {FullName: "Alguém", Side: &bad},
+	}
+	for name, edit := range cases {
+		if _, err := svc.CreateGuest(ctx, edit, nil); err == nil {
+			t.Errorf("%s: should have been refused", name)
+		}
+	}
+}
+
+// TestCreateGuestRefusesADuplicateName — the list is looked up by name (AD-5),
+// so two people with one name is a lookup nobody can resolve.
+func TestCreateGuestRefusesADuplicateName(t *testing.T) {
+	svc := NewService(&fakeRepo{}, nil, nil, nil)
+	ctx := context.Background()
+	if _, err := svc.CreateGuest(ctx, GuestEdit{FullName: "Tia Selma"}, nil); err != nil {
+		t.Fatalf("first: %v", err)
+	}
+	if _, err := svc.CreateGuest(ctx, GuestEdit{FullName: "tia  selma"}, nil); !errors.Is(err, ErrNameTaken) {
+		t.Fatalf("second: got %v, want ErrNameTaken", err)
 	}
 }

@@ -121,3 +121,12 @@ select id, group_id, full_name, is_primary, category, attending, added_by_guest,
        gender, side, circle, ceremony_role, notes
 from guests
 order by is_primary desc, full_name;
+
+-- Adds one person the couple typed in by hand. The importer has its own insert
+-- (AD-10 keeps the two apart): this one is never part of a bulk upload, so it
+-- takes the invitation as given rather than matching one by name.
+-- name: InsertGuest :one
+insert into guests (group_id, full_name, normalized_name, is_primary, category,
+                    gender, side, circle, ceremony_role, notes)
+values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+returning id;

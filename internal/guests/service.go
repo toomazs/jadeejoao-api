@@ -133,6 +133,7 @@ type Repo interface {
 	ListMembers(ctx context.Context, groupID uuid.UUID) ([]Member, error)
 	UpdateAttendances(ctx context.Context, groupID uuid.UUID, updates []AttendanceUpdate) error
 	SuggestNames(ctx context.Context, normalizedPrefix string) ([]string, error)
+	CreateGuest(ctx context.Context, edit GuestEdit, into *uuid.UUID) (uuid.UUID, error)
 	UpdateGuestDetails(ctx context.Context, guestID uuid.UUID, edit GuestEdit) error
 	DeleteGuest(ctx context.Context, guestID uuid.UUID) error
 	RenameGroup(ctx context.Context, groupID uuid.UUID, label string) error
@@ -262,7 +263,29 @@ func (s *Service) RemoveCompanion(ctx context.Context, groupID, guestID uuid.UUI
 // The importer owns identity on bulk upload (AD-10); this is the manual repair
 // path for the cases it cannot serve — a misspelling, a category that was
 // guessed wrong, a note the couple wants to keep.
+// CreateGuest adds somebody the spreadsheet did not have.
+//
+// The importer is the bulk path and owns identity there (AD-10); this is the
+// other one — a cousin remembered late, a plus-one the couple decided to
+// invite. Same validation as an edit, because it is the same person shape.
+func (s *Service) CreateGuest(ctx context.Context, edit GuestEdit, into *uuid.UUID) (uuid.UUID, error) {
+	if err := validateGuest(&edit); err != nil {
+		return uuid.Nil, err
+	}
+	return s.repo.CreateGuest(ctx, edit, into)
+}
+
 func (s *Service) EditGuest(ctx context.Context, guestID uuid.UUID, edit GuestEdit) error {
+	if err := validateGuest(&edit); err != nil {
+		return err
+	}
+	return s.repo.UpdateGuestDetails(ctx, guestID, edit)
+}
+
+// validateGuest tidies the name and refuses the values the columns will not
+// hold. Shared, so a guest created by hand cannot be shaped differently from
+// one edited by hand.
+func validateGuest(edit *GuestEdit) error {
 	edit.FullName = strings.Join(strings.Fields(edit.FullName), " ")
 	if Normalize(edit.FullName) == "" {
 		return ErrInvalidName
@@ -276,7 +299,7 @@ func (s *Service) EditGuest(ctx context.Context, guestID uuid.UUID, edit GuestEd
 	if edit.Side != nil && *edit.Side != "bride" && *edit.Side != "groom" && *edit.Side != "both" {
 		return ErrInvalidField
 	}
-	return s.repo.UpdateGuestDetails(ctx, guestID, edit)
+	return nil
 }
 
 // DeleteGuest removes somebody from the list for good. Deliberately manual and

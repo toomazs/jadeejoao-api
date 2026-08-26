@@ -508,3 +508,41 @@ func (q *Queries) UpdateGuestAttendance(ctx context.Context, arg UpdateGuestAtte
 	}
 	return result.RowsAffected(), nil
 }
+
+const insertGuest = `-- name: InsertGuest :one
+insert into guests (group_id, full_name, normalized_name, is_primary, category,
+                    gender, side, circle, ceremony_role, notes)
+values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+returning id
+`
+
+type InsertGuestParams struct {
+	GroupID        uuid.UUID
+	FullName       string
+	NormalizedName string
+	IsPrimary      bool
+	Category       *string
+	Gender         *string
+	Side           *string
+	Circle         string
+	CeremonyRole   string
+	Notes          string
+}
+
+func (q *Queries) InsertGuest(ctx context.Context, arg InsertGuestParams) (uuid.UUID, error) {
+	row := q.db.QueryRow(ctx, insertGuest,
+		arg.GroupID,
+		arg.FullName,
+		arg.NormalizedName,
+		arg.IsPrimary,
+		arg.Category,
+		arg.Gender,
+		arg.Side,
+		arg.Circle,
+		arg.CeremonyRole,
+		arg.Notes,
+	)
+	var id uuid.UUID
+	err := row.Scan(&id)
+	return id, err
+}

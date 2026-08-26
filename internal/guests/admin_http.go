@@ -133,6 +133,28 @@ type GuestEditInput struct {
 	}
 }
 
+// GuestCreateInput adds one person the spreadsheet did not have.
+type GuestCreateInput struct {
+	Body struct {
+		FullName     string  `json:"full_name" minLength:"2" maxLength:"120"`
+		Category     *string `json:"category,omitempty" enum:"adult,teen,child,baby,elderly"`
+		Gender       *string `json:"gender,omitempty" enum:"female,male"`
+		Side         *string `json:"side,omitempty" enum:"bride,groom,both" doc:"De quem é o convidado."`
+		Circle       string  `json:"circle,omitempty" maxLength:"60" example:"Amigos"`
+		CeremonyRole string  `json:"ceremony_role,omitempty" maxLength:"60" example:"Madrinha"`
+		Notes        string  `json:"notes,omitempty" maxLength:"500"`
+		GroupID      string  `json:"group_id,omitempty" format:"uuid" doc:"Add to this invitation. Omit to give the person one of their own."`
+	}
+}
+
+// GuestCreatedOutput carries the new id, so the panel can open the person it
+// just made.
+type GuestCreatedOutput struct {
+	Body struct {
+		GuestID string `json:"guest_id" format:"uuid"`
+	}
+}
+
 // GuestIDInput addresses one guest.
 type GuestIDInput struct {
 	GuestID string `path:"guest_id" format:"uuid"`
@@ -175,6 +197,42 @@ func ok() *OkOutput {
 // without these the couple's only way to fix a misspelling or merge two
 // families is direct database access.
 func RegisterAdminManagement(api huma.API, svc *Service) {
+	huma.Register(api, huma.Operation{
+		OperationID:   "admin-create-guest",
+		Method:        http.MethodPost,
+		Path:          "/guests",
+		DefaultStatus: http.StatusCreated,
+		Summary:       "Add a guest",
+		Description: "Adds one person by hand. Without a group_id they get an invitation of their " +
+			"own, labelled with their name and theirs to answer — the shape every imported guest " +
+			"starts in. Attendance is not settable here: it belongs to the RSVP flow.",
+		Tags: []string{"guests"},
+	}, func(ctx context.Context, in *GuestCreateInput) (*GuestCreatedOutput, error) {
+		var into *uuid.UUID
+		if in.Body.GroupID != "" {
+			parsed, err := uuid.Parse(in.Body.GroupID)
+			if err != nil {
+				return nil, huma.Error422UnprocessableEntity("Identificador de convite inválido.")
+			}
+			into = &parsed
+		}
+		id, err := svc.CreateGuest(ctx, GuestEdit{
+			FullName:     in.Body.FullName,
+			Category:     in.Body.Category,
+			Gender:       in.Body.Gender,
+			Side:         in.Body.Side,
+			Circle:       in.Body.Circle,
+			CeremonyRole: in.Body.CeremonyRole,
+			Notes:        in.Body.Notes,
+		}, into)
+		if err != nil {
+			return nil, mapAdminGuestErr(err)
+		}
+		out := &GuestCreatedOutput{}
+		out.Body.GuestID = id.String()
+		return out, nil
+	})
+
 	huma.Register(api, huma.Operation{
 		OperationID: "admin-edit-guest",
 		Method:      http.MethodPatch,

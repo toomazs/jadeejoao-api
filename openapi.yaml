@@ -903,6 +903,76 @@ components:
         - label
         - members
       type: object
+    GuestCreateInputBody:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - https://example.com/schemas/GuestCreateInputBody.json
+          format: uri
+          readOnly: true
+          type: string
+        category:
+          enum:
+            - adult
+            - teen
+            - child
+            - baby
+            - elderly
+          type: string
+        ceremony_role:
+          examples:
+            - Madrinha
+          maxLength: 60
+          type: string
+        circle:
+          examples:
+            - Amigos
+          maxLength: 60
+          type: string
+        full_name:
+          maxLength: 120
+          minLength: 2
+          type: string
+        gender:
+          enum:
+            - female
+            - male
+          type: string
+        group_id:
+          description: Add to this invitation. Omit to give the person one of their own.
+          format: uuid
+          type: string
+        notes:
+          maxLength: 500
+          type: string
+        side:
+          description: De quem é o convidado.
+          enum:
+            - bride
+            - groom
+            - both
+          type: string
+      required:
+        - full_name
+      type: object
+    GuestCreatedOutputBody:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - https://example.com/schemas/GuestCreatedOutputBody.json
+          format: uri
+          readOnly: true
+          type: string
+        guest_id:
+          format: uuid
+          type: string
+      required:
+        - guest_id
+      type: object
     GuestEditInputBody:
       additionalProperties: false
       properties:
@@ -2097,6 +2167,34 @@ paths:
       security:
         - supabaseJWT: []
       summary: Guest dashboard
+      tags:
+        - guests
+        - admin
+    post:
+      description: "Adds one person by hand. Without a group_id they get an invitation of their own, labelled with their name and theirs to answer — the shape every imported guest starts in. Attendance is not settable here: it belongs to the RSVP flow."
+      operationId: admin-create-guest
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GuestCreateInputBody"
+        required: true
+      responses:
+        "201":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GuestCreatedOutputBody"
+          description: Created
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      security:
+        - supabaseJWT: []
+      summary: Add a guest
       tags:
         - guests
         - admin

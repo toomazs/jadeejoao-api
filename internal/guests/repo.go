@@ -219,6 +219,54 @@ func (r *pgRepo) RemoveCompanion(ctx context.Context, groupID, guestID uuid.UUID
 // normalized_name is recomputed here, never taken from the caller: it is what
 // the guest lookup matches on, and a stale one would make somebody vanish from
 // their own invitation.
+// CreateGuest adds one person by hand, in their own new invitation or in one
+// that already exists.
+//
+// Alone, the invitation is labelled with their name and they are its primary,
+// which is the shape every imported guest starts in — so somebody typed in
+// afterwards can confirm for themselves like everyone else. Added to an
+// existing invitation they are not primary, and `added_by_guest` stays false:
+// the couple put them there, so no guest can take them out again.
+func (r *pgRepo) CreateGuest(ctx context.Context, edit GuestEdit, into *uuid.UUID) (uuid.UUID, error) {
+	groupID := uuid.Nil
+	alone := into == nil
+	if alone {
+		created, err := r.q.InsertGuestGroup(ctx, edit.FullName)
+		if err != nil {
+			return uuid.Nil, err
+		}
+		groupID = created
+	} else {
+		groupID = *into
+	}
+
+	id, err := r.q.InsertGuest(ctx, guestsdb.InsertGuestParams{
+		GroupID:        groupID,
+		FullName:       edit.FullName,
+		NormalizedName: Normalize(edit.FullName),
+		IsPrimary:      alone,
+		Category:       edit.Category,
+		Gender:         edit.Gender,
+		Side:           edit.Side,
+		Circle:         edit.Circle,
+		CeremonyRole:   edit.CeremonyRole,
+		Notes:          edit.Notes,
+	})
+	if err != nil {
+		// The invitation just made would otherwise be left behind, empty, for
+		// nobody — a name typed twice would litter the table.
+		if alone {
+			_ = r.q.DeleteGroupIfEmpty(ctx, groupID)
+		}
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+			return uuid.Nil, ErrNameTaken
+		}
+		return uuid.Nil, err
+	}
+	return id, nil
+}
+
 func (r *pgRepo) UpdateGuestDetails(ctx context.Context, guestID uuid.UUID, edit GuestEdit) error {
 	affected, err := r.q.UpdateGuestDetails(ctx, guestsdb.UpdateGuestDetailsParams{
 		ID:             guestID,
