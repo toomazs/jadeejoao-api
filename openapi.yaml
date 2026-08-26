@@ -1,5 +1,24 @@
 components:
   schemas:
+    AdminFeedOutputBody:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - https://example.com/schemas/AdminFeedOutputBody.json
+          format: uri
+          readOnly: true
+          type: string
+        posts:
+          items:
+            $ref: "#/components/schemas/PostView"
+          type:
+            - array
+            - "null"
+      required:
+        - posts
+      type: object
     AdminGiftView:
       additionalProperties: false
       properties:
@@ -1622,6 +1641,26 @@ components:
         - deadline
         - title
       type: object
+    ReplaceFeedInputBody:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - https://example.com/schemas/ReplaceFeedInputBody.json
+          format: uri
+          readOnly: true
+          type: string
+        posts:
+          description: The gallery in display order. Sending fewer replaces the rest — this is not a merge.
+          items:
+            $ref: "#/components/schemas/PostView"
+          type:
+            - array
+            - "null"
+      required:
+        - posts
+      type: object
     RowIssue:
       additionalProperties: false
       properties:
@@ -2235,6 +2274,77 @@ paths:
       summary: Import the guest list
       tags:
         - importer
+        - admin
+  /api/v1/admin/instagram/{person}:
+    get:
+      description: Returns the stored gallery, read past the public cache so the panel always edits what is actually saved.
+      operationId: get-admin-instagram-feed
+      parameters:
+        - description: "Whose gallery: the bride's or the groom's."
+          in: path
+          name: person
+          required: true
+          schema:
+            description: "Whose gallery: the bride's or the groom's."
+            enum:
+              - bride
+              - groom
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminFeedOutputBody"
+          description: OK
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      security:
+        - supabaseJWT: []
+      summary: Read one gallery for editing
+      tags:
+        - instagram
+        - admin
+    put:
+      description: Writes the manifest and drops the cached copy, so the site shows the change immediately rather than at the end of the cache window.
+      operationId: replace-admin-instagram-feed
+      parameters:
+        - in: path
+          name: person
+          required: true
+          schema:
+            enum:
+              - bride
+              - groom
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReplaceFeedInputBody"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminFeedOutputBody"
+          description: OK
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      security:
+        - supabaseJWT: []
+      summary: Replace one gallery
+      tags:
+        - instagram
         - admin
   /api/v1/admin/media:
     get:

@@ -40,6 +40,7 @@ func Register(api huma.API, deps Deps) {
 	gifts.RegisterAdmin(admin, deps.Gifts)
 	messages.RegisterAdmin(admin, deps.Messages)
 	media.RegisterAdmin(admin, deps.Media)
+	instagram.RegisterAdmin(admin, deps.Instagram)
 	importer.RegisterAdmin(admin, deps.Importer)
 }
 

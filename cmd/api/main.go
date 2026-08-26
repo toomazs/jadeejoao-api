@@ -77,10 +77,12 @@ func run() error {
 		slog.Warn("RESEND_API_KEY is set but RSVP_NOTIFY_EMAILS is empty — rsvp notifications DISABLED")
 	}
 
-	// Imported Instagram posts live in the public bucket (one-shot operator
-	// import); the API only reads the manifests from there.
+	// The six posts under each chapter live in the public bucket as a manifest
+	// per person: read through the CDN, written back through the same storage
+	// the media library uses.
 	igSvc := instagram.NewService(
-		cfg.SupabaseURL + "/storage/v1/object/public/" + cfg.StorageBucket + "/instagram",
+		cfg.SupabaseURL+"/storage/v1/object/public/"+cfg.StorageBucket+"/instagram",
+		storage,
 	)
 
 	contentSvc := content.NewService(content.NewRepo(pool))

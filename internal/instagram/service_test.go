@@ -2,8 +2,11 @@ package instagram
 
 import (
 	"context"
+	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -18,7 +21,7 @@ func newTestService(t *testing.T, handler http.HandlerFunc) *Service {
 	t.Helper()
 	srv := httptest.NewServer(handler)
 	t.Cleanup(srv.Close)
-	return NewService(srv.URL)
+	return NewService(srv.URL, nil)
 }
 
 func TestPostsReadsManifestAndCaches(t *testing.T) {
@@ -110,7 +113,7 @@ func TestNilAndUnconfiguredService(t *testing.T) {
 	if posts, exists, err := nilSvc.Posts(context.Background(), PersonBride); posts != nil || exists || err != nil {
 		t.Fatal("nil service must answer empty and not configured")
 	}
-	empty := NewService("")
+	empty := NewService("", nil)
 	if posts, exists, err := empty.Posts(context.Background(), PersonBride); posts != nil || exists || err != nil {
 		t.Fatal("empty base must answer empty and not configured")
 	}
@@ -145,5 +148,107 @@ func TestCallerCancellationDoesNotPoisonTheCache(t *testing.T) {
 	}
 	if calls.Load() != 1 {
 		t.Fatalf("expected the first read to have cached, got %d fetches", calls.Load())
+	}
+}
+
+// fakeUploader records what would have gone to the bucket.
+type fakeUploader struct {
+	path string
+	body []byte
+	fail error
+}
+
+func (f *fakeUploader) Upload(_ context.Context, path, _ string, body io.Reader) error {
+	if f.fail != nil {
+		return f.fail
+	}
+	f.path = path
+	raw, err := io.ReadAll(body)
+	f.body = raw
+	return err
+}
+
+// TestReplaceDropsTheCache is the whole reason Replace lives on the service.
+// Writing the manifest without forgetting the cached copy leaves the site
+// serving the old photos for the rest of the cache window — a save that looks
+// like it did nothing.
+func TestReplaceDropsTheCache(t *testing.T) {
+	hits := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		hits++
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprintf(w, `[{"id":"a-%d","media_type":"IMAGE","media_url":"u","permalink":"p"}]`, hits)
+	}))
+	defer srv.Close()
+
+	up := &fakeUploader{}
+	svc := NewService(srv.URL, up)
+	ctx := context.Background()
+
+	if _, _, err := svc.Posts(ctx, PersonBride); err != nil {
+		t.Fatalf("first read: %v", err)
+	}
+	if _, _, err := svc.Posts(ctx, PersonBride); err != nil {
+		t.Fatalf("cached read: %v", err)
+	}
+	if hits != 1 {
+		t.Fatalf("second read should have been cached, got %d fetches", hits)
+	}
+
+	if err := svc.Replace(ctx, PersonBride, []PostView{{ID: "novo", MediaType: "IMAGE", MediaURL: "u"}}); err != nil {
+		t.Fatalf("replace: %v", err)
+	}
+	if up.path != "instagram/bride.json" {
+		t.Fatalf("wrote to %q", up.path)
+	}
+	if !strings.Contains(string(up.body), `"novo"`) {
+		t.Fatalf("manifest body missing the post: %s", up.body)
+	}
+	if _, _, err := svc.Posts(ctx, PersonBride); err != nil {
+		t.Fatalf("read after replace: %v", err)
+	}
+	if hits != 2 {
+		t.Fatalf("replace must drop the cache; fetches after save: %d", hits)
+	}
+}
+
+// TestReplaceWithoutStorageSaysSo — a deploy without bucket credentials can
+// still show the galleries, and must refuse to pretend it saved one.
+func TestReplaceWithoutStorageSaysSo(t *testing.T) {
+	if err := NewService("http://x", nil).Replace(context.Background(), PersonBride, nil); err == nil {
+		t.Fatal("replace without storage should fail")
+	}
+}
+
+// TestCleanFillsIdsAndRejectsBlankPhotos covers the two things the panel
+// cannot get right on its own: a photo with no image is a hole in the grid,
+// and a duplicate id makes two frames the same frame.
+func TestCleanFillsIdsAndRejectsBlankPhotos(t *testing.T) {
+	if _, err := clean([]PostView{{MediaURL: "  "}}, PersonBride); err == nil {
+		t.Fatal("a post with no image should be refused")
+	}
+	if _, err := clean(make([]PostView, MaxPosts+1), PersonBride); err == nil {
+		t.Fatal("over the ceiling should be refused")
+	}
+	out, err := clean([]PostView{
+		{MediaURL: "a", ID: "same"},
+		{MediaURL: "b", ID: "same"},
+		{MediaURL: "c"},
+	}, PersonBride)
+	if err != nil {
+		t.Fatalf("clean: %v", err)
+	}
+	seen := map[string]bool{}
+	for i, post := range out {
+		if post.ID == "" {
+			t.Fatalf("post %d left without an id", i)
+		}
+		if seen[post.ID] {
+			t.Fatalf("post %d reused id %q", i, post.ID)
+		}
+		seen[post.ID] = true
+		if post.MediaType != "IMAGE" {
+			t.Fatalf("post %d should default to IMAGE, got %q", i, post.MediaType)
+		}
 	}
 }
