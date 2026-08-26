@@ -348,6 +348,60 @@ func (r *pgRepo) SetGroupPrimary(ctx context.Context, groupID, guestID uuid.UUID
 	return nil
 }
 
+// DetachGuest gives somebody an invitation of their own again.
+//
+// The opposite of merging, and the half that was missing: once two people
+// shared an invitation the couple could move them somewhere else, but never
+// simply undo it. The new invitation is labelled with their name and they are
+// its primary, which is the shape everybody starts in — so they can answer for
+// themselves, which is the whole point of not sharing.
+func (r *pgRepo) DetachGuest(ctx context.Context, guestID uuid.UUID) error {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck // no-op after commit
+
+	q := r.q.WithTx(tx)
+	guest, err := q.GetGuestWithGroupSize(ctx, guestID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrNotFound
+		}
+		return err
+	}
+	// Alone already: there is nothing to come out of, and making a second
+	// invitation for one person would leave an empty one behind.
+	if guest.GroupSize <= 1 {
+		return ErrAlreadyOnInvitation
+	}
+
+	created, err := q.InsertGuestGroup(ctx, guest.FullName)
+	if err != nil {
+		return err
+	}
+	moved, err := q.MoveGuestToGroupAsAdmin(ctx, guestsdb.MoveGuestToGroupAsAdminParams{
+		ID: guestID, GroupID: created,
+	})
+	if err != nil {
+		return err
+	}
+	if moved == 0 {
+		return ErrNotFound
+	}
+	if _, err := q.SetGroupPrimary(ctx, guestsdb.SetGroupPrimaryParams{
+		GuestID: guestID, GroupID: created,
+	}); err != nil {
+		return err
+	}
+	// The invitation they left may now have nobody holding it — whoever is
+	// left has to be able to answer.
+	if err := q.EnsureGroupHasPrimary(ctx, guest.GroupID); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
 // MoveGuestAsAdmin merges someone into another invitation. Unlike the guest
 // path this accepts anyone — the couple is allowed to reshape their own list —
 // but it still tidies the invitation left behind.

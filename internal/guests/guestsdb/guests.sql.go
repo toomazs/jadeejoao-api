@@ -546,3 +546,22 @@ func (q *Queries) InsertGuest(ctx context.Context, arg InsertGuestParams) (uuid.
 	err := row.Scan(&id)
 	return id, err
 }
+
+const ensureGroupHasPrimary = `-- name: EnsureGroupHasPrimary :exec
+update guests
+set is_primary = true, updated_at = now()
+where id = (
+  select id from guests
+  where group_id = $1::uuid
+  order by full_name
+  limit 1
+)
+and not exists (
+  select 1 from guests where group_id = $1::uuid and is_primary
+)
+`
+
+func (q *Queries) EnsureGroupHasPrimary(ctx context.Context, groupID uuid.UUID) error {
+	_, err := q.db.Exec(ctx, ensureGroupHasPrimary, groupID)
+	return err
+}

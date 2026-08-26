@@ -693,6 +693,21 @@ func TestCompanionChangesRefusedAfterTheDeadline(t *testing.T) {
 
 // --- the panel's list-repair surface ---
 
+func (f *fakeRepo) DetachGuest(_ context.Context, guestID uuid.UUID) error {
+	for i, m := range f.members {
+		if m.ID != guestID {
+			continue
+		}
+		// Alone already: nothing to come out of.
+		if len(f.members) <= 1 {
+			return ErrAlreadyOnInvitation
+		}
+		f.members[i].IsPrimary = true
+		return nil
+	}
+	return ErrNotFound
+}
+
 func (f *fakeRepo) CreateGuest(_ context.Context, edit GuestEdit, into *uuid.UUID) (uuid.UUID, error) {
 	for _, m := range f.members {
 		if Normalize(m.FullName) == Normalize(edit.FullName) {
@@ -876,5 +891,19 @@ func TestCreateGuestRefusesADuplicateName(t *testing.T) {
 	}
 	if _, err := svc.CreateGuest(ctx, GuestEdit{FullName: "tia  selma"}, nil); !errors.Is(err, ErrNameTaken) {
 		t.Fatalf("second: got %v, want ErrNameTaken", err)
+	}
+}
+
+// TestDetachRefusesSomebodyAlreadyAlone — a second invitation for one person
+// leaves the first one empty and behind.
+func TestDetachRefusesSomebodyAlreadyAlone(t *testing.T) {
+	svc := NewService(&fakeRepo{}, nil, nil, nil)
+	ctx := context.Background()
+	id, err := svc.CreateGuest(ctx, GuestEdit{FullName: "Tia Selma"}, nil)
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	if err := svc.DetachFromInvitation(ctx, id); !errors.Is(err, ErrAlreadyOnInvitation) {
+		t.Fatalf("got %v, want ErrAlreadyOnInvitation", err)
 	}
 }

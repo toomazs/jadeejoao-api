@@ -315,6 +315,26 @@ func RegisterAdminManagement(api huma.API, svc *Service) {
 	})
 
 	huma.Register(api, huma.Operation{
+		OperationID: "admin-detach-guest",
+		Method:      http.MethodDelete,
+		Path:        "/guests/{guest_id}/invitation",
+		Summary:     "Give a guest their own invitation",
+		Description: "Takes somebody out of a shared invitation into one of their own, labelled " +
+			"with their name and theirs to answer. Refused when they are already alone. If they " +
+			"were the one holding the invitation, whoever is left is handed it.",
+		Tags: []string{"guests"},
+	}, func(ctx context.Context, in *GuestIDInput) (*OkOutput, error) {
+		guestID, err := uuid.Parse(in.GuestID)
+		if err != nil {
+			return nil, huma.Error422UnprocessableEntity("Identificador de convidado inválido.")
+		}
+		if err := svc.DetachFromInvitation(ctx, guestID); err != nil {
+			return nil, mapAdminGuestErr(err)
+		}
+		return ok(), nil
+	})
+
+	huma.Register(api, huma.Operation{
 		OperationID: "admin-set-primary",
 		Method:      http.MethodPost,
 		Path:        "/groups/{group_id}/primary",

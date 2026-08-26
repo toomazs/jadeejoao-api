@@ -2295,6 +2295,36 @@ paths:
       tags:
         - guests
         - admin
+  /api/v1/admin/guests/{guest_id}/invitation:
+    delete:
+      description: Takes somebody out of a shared invitation into one of their own, labelled with their name and theirs to answer. Refused when they are already alone. If they were the one holding the invitation, whoever is left is handed it.
+      operationId: admin-detach-guest
+      parameters:
+        - in: path
+          name: guest_id
+          required: true
+          schema:
+            format: uuid
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OkOutputBody"
+          description: OK
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      security:
+        - supabaseJWT: []
+      summary: Give a guest their own invitation
+      tags:
+        - guests
+        - admin
   /api/v1/admin/import:
     post:
       description: "Uploads a CSV or XLSX export of the couple's spreadsheet (headers: nome, grupo, principal, categoria — case/accent-insensitive). Upserts identity fields only; RSVP answers are never touched. Homonyms across groups are reported as conflicts, never written."

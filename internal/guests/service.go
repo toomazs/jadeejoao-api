@@ -134,6 +134,7 @@ type Repo interface {
 	UpdateAttendances(ctx context.Context, groupID uuid.UUID, updates []AttendanceUpdate) error
 	SuggestNames(ctx context.Context, normalizedPrefix string) ([]string, error)
 	CreateGuest(ctx context.Context, edit GuestEdit, into *uuid.UUID) (uuid.UUID, error)
+	DetachGuest(ctx context.Context, guestID uuid.UUID) error
 	UpdateGuestDetails(ctx context.Context, guestID uuid.UUID, edit GuestEdit) error
 	DeleteGuest(ctx context.Context, guestID uuid.UUID) error
 	RenameGroup(ctx context.Context, groupID uuid.UUID, label string) error
@@ -327,6 +328,15 @@ func (s *Service) SetPrimary(ctx context.Context, groupID, guestID uuid.UUID) er
 
 // MergeIntoInvitation moves a guest into another invitation. This is the
 // couple's own tool, so unlike the guest-facing path it accepts anyone.
+// DetachFromInvitation gives somebody their own invitation back.
+//
+// Merging had no undo. Two people sharing an invitation could be moved to a
+// third, but never simply separated — so a wrong merge was a wrong merge for
+// good, and the couple's only way out was the database.
+func (s *Service) DetachFromInvitation(ctx context.Context, guestID uuid.UUID) error {
+	return s.repo.DetachGuest(ctx, guestID)
+}
+
 func (s *Service) MergeIntoInvitation(ctx context.Context, groupID, guestID uuid.UUID) error {
 	return s.repo.MoveGuestAsAdmin(ctx, groupID, guestID)
 }

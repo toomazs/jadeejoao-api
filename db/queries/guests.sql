@@ -130,3 +130,19 @@ insert into guests (group_id, full_name, normalized_name, is_primary, category,
                     gender, side, circle, ceremony_role, notes)
 values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 returning id;
+
+-- Hands the invitation to somebody when nobody is holding it. Alphabetical
+-- only so the choice is the same every time; who it is matters less than that
+-- there is one, because without a primary nobody can answer for the group.
+-- name: EnsureGroupHasPrimary :exec
+update guests
+set is_primary = true, updated_at = now()
+where id = (
+  select id from guests
+  where group_id = @group_id::uuid
+  order by full_name
+  limit 1
+)
+and not exists (
+  select 1 from guests where group_id = @group_id::uuid and is_primary
+);
