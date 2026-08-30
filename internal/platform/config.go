@@ -84,6 +84,11 @@ func LoadConfig() (*Config, error) {
 	require("PIX_KEY", cfg.PIXKey)
 	require("PIX_MERCHANT_NAME", cfg.PIXMerchantName)
 	require("PIX_MERCHANT_CITY", cfg.PIXMerchantCity)
+	// Not required: the API serves the whole site without it, and refusing to
+	// start would take the wedding site down over a feature only the two of
+	// them use. It is warned about loudly at boot instead, and the password
+	// change now says plainly when it is missing rather than blaming the
+	// admin's password.
 	if len(cfg.AdminEmails) == 0 {
 		missing = append(missing, "ADMIN_EMAILS")
 	}

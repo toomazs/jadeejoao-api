@@ -77,8 +77,19 @@ func registerPasswordChange(api huma.API, auth AdminPasswordChanger) {
 		// Identity is already proven by the JWT; this proves it is the owner
 		// at the keyboard, so a borrowed token cannot lock them out.
 		if err := auth.VerifyPassword(ctx, claims.Email, in.Body.CurrentPassword); err != nil {
-			if errors.Is(err, platform.ErrWrongPassword) {
+			switch {
+			case errors.Is(err, platform.ErrWrongPassword):
 				return nil, huma.Error422UnprocessableEntity("A senha atual não confere.")
+			// Said apart from the line above on purpose. Here the password was
+			// never checked — this server's key was refused — and the person at
+			// the keyboard has nothing to correct. Blaming their password sends
+			// them to change one that already works.
+			case errors.Is(err, platform.ErrAuthMisconfigured):
+				slog.ErrorContext(ctx, "supabase refused this server's key; nobody can change a password until it is fixed",
+					"error", err, "hint", "check SUPABASE_SECRET_KEY on the server")
+				return nil, huma.Error503ServiceUnavailable("A senha está certa, mas o servidor não conseguiu confirmá-la com o Supabase. Fale com quem cuida do site.")
+			case errors.Is(err, platform.ErrAuthRateLimited):
+				return nil, huma.Error429TooManyRequests("Tentativas demais em pouco tempo. Espere um minuto e tente de novo.")
 			}
 			slog.ErrorContext(ctx, "password verification failed", "error", err)
 			return nil, huma.Error500InternalServerError("Não conseguimos trocar a senha agora. Tente novamente em instantes.")

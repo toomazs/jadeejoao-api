@@ -18,6 +18,14 @@ var (
 	ErrWrongPassword = errors.New("current password does not match")
 	// ErrAuthUserNotFound: no Supabase Auth user with that email.
 	ErrAuthUserNotFound = errors.New("auth user not found")
+	// ErrAuthMisconfigured: this server's key was refused, so nothing was
+	// checked at all. Emphatically not the same as a wrong password: the fault
+	// is here, and telling the owner their password is wrong when the server
+	// never got to look at it sends them off changing a password that was
+	// right the whole time.
+	ErrAuthMisconfigured = errors.New("supabase rejected this server's key")
+	// ErrAuthRateLimited: Supabase is refusing sign-in attempts for now.
+	ErrAuthRateLimited = errors.New("supabase is rate limiting sign-ins")
 )
 
 // SupabaseAuth talks to the project's Auth Admin API with the service key.
@@ -91,6 +99,13 @@ func (s *SupabaseAuth) do(ctx context.Context, method, path string, body any, ou
 // it is about a stolen or borrowed token not being enough to lock the real
 // owner out of their own account.
 func (s *SupabaseAuth) VerifyPassword(ctx context.Context, email, password string) error {
+	// This request is built by hand rather than through do(), so it never met
+	// do()'s configuration gate. Without this, a deploy missing the key sends
+	// a blank apikey, is refused with 401, and every admin is told their own
+	// password is wrong.
+	if !s.Configured() {
+		return fmt.Errorf("%w: SUPABASE_SECRET_KEY is empty", ErrAuthMisconfigured)
+	}
 	body, err := json.Marshal(map[string]string{"email": email, "password": password})
 	if err != nil {
 		return err
@@ -108,14 +123,40 @@ func (s *SupabaseAuth) VerifyPassword(ctx context.Context, email, password strin
 		return err
 	}
 	defer resp.Body.Close()
-	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<20))
-	switch {
-	case resp.StatusCode == http.StatusOK:
+	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+
+	if resp.StatusCode == http.StatusOK {
 		return nil
-	case resp.StatusCode == http.StatusBadRequest, resp.StatusCode == http.StatusUnauthorized:
+	}
+
+	// Which 400 this is matters, and only the body says. Supabase answers 400
+	// for a wrong password, for an unconfirmed address and for a malformed
+	// request alike; reading the code is the difference between telling the
+	// owner something true and telling them their password is wrong when it
+	// is not.
+	var failure struct {
+		ErrorCode string `json:"error_code"`
+		Error     string `json:"error"`
+		Message   string `json:"msg"`
+	}
+	_ = json.Unmarshal(raw, &failure)
+	code := failure.ErrorCode
+	if code == "" {
+		code = failure.Error
+	}
+
+	switch {
+	// The only two that mean what the panel is about to say out loud.
+	case code == "invalid_credentials" || code == "invalid_grant":
 		return ErrWrongPassword
+	// 401 is never about the password. It is this server's key being absent or
+	// refused, and the attempt died before Supabase looked at any credential.
+	case resp.StatusCode == http.StatusUnauthorized:
+		return fmt.Errorf("%w: %s", ErrAuthMisconfigured, strings.TrimSpace(string(raw)))
+	case resp.StatusCode == http.StatusTooManyRequests:
+		return ErrAuthRateLimited
 	default:
-		return fmt.Errorf("supabase token grant: %d", resp.StatusCode)
+		return fmt.Errorf("supabase token grant: %d: %s", resp.StatusCode, strings.TrimSpace(string(raw)))
 	}
 }
 
