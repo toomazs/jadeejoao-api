@@ -1,6 +1,13 @@
-// Package messages owns the "Recado aos noivos" guestbook. Publicly
-// write-only: guests create pending messages, the couple moderates in the
-// admin, and no public read endpoint exists in v1 (AD-14).
+// Package messages owns the "Recado aos noivos" guestbook.
+//
+// Guests write, and what they write goes up on the site for everyone (AD-14).
+// It was write-only at first, on the reasoning that a wedding guestbook is for
+// the couple. In practice a wall of other people's good wishes is most of why
+// anyone writes one at all, so the couple asked for it to be read back.
+//
+// Nothing stands between writing and appearing. The couple deletes what should
+// not be there, which means a bad message is visible until they look — the
+// trade they chose, and the reason every new message already emails them.
 package messages
 
 import (
@@ -38,7 +45,16 @@ type Message struct {
 type Repo interface {
 	Insert(ctx context.Context, groupID *uuid.UUID, authorName, body string) (Message, error)
 	List(ctx context.Context) ([]Message, error)
+	ListPublic(ctx context.Context, limit int32) ([]Message, error)
+	Delete(ctx context.Context, id uuid.UUID) error
 }
+
+// PublicWallSize caps what the site is given.
+//
+// The wall draws every message it receives and scrolls them past, so an
+// unbounded list would quietly become a heavier page every month. Sixty is more
+// than anyone reads in one pass and still comfortably small.
+const PublicWallSize int32 = 60
 
 // Mailer sends one notification email. Implemented by platform.ResendMailer;
 // nil disables notifications entirely.
@@ -145,4 +161,13 @@ func (s *Service) List(ctx context.Context) ([]Message, error) {
 	return s.repo.List(ctx)
 }
 
-// Moderate transitions a message to approved or rejected (admin only; the
+// ListPublic returns the newest messages for the wall on the site.
+func (s *Service) ListPublic(ctx context.Context) ([]Message, error) {
+	return s.repo.ListPublic(ctx, PublicWallSize)
+}
+
+// Delete removes a message for good. The couple's only control over the wall,
+// and the reason it can be public at all.
+func (s *Service) Delete(ctx context.Context, id uuid.UUID) error {
+	return s.repo.Delete(ctx, id)
+}

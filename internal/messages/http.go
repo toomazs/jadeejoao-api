@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"time"
 
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/google/uuid"
@@ -28,10 +29,55 @@ type MessageCreatedOutput struct {
 	}
 }
 
-// RegisterPublic mounts the write-only public guestbook surface. There is no
-// public read endpoint — the couple reads messages in the panel, and nothing
-// a guest writes is ever shown to another guest (AD-14).
+// PublicMessage is one entry as the wall shows it.
+//
+// No group_id. Which invitation somebody belongs to is the couple's business,
+// and this list is served to anyone who opens the site.
+type PublicMessage struct {
+	MessageID  string `json:"message_id" format:"uuid"`
+	AuthorName string `json:"author_name"`
+	Body       string `json:"body"`
+	CreatedAt  string `json:"created_at" format:"date-time"`
+}
+
+// MessageWallOutput is the wall, newest first.
+type MessageWallOutput struct {
+	Body struct {
+		Messages []PublicMessage `json:"messages"`
+	}
+}
+
+// RegisterPublic mounts the public guestbook: guests write, and what they
+// write goes up for everyone to read (AD-14).
 func RegisterPublic(api huma.API, svc *Service) {
+	huma.Register(api, huma.Operation{
+		OperationID: "list-messages",
+		Method:      http.MethodGet,
+		Path:        platform.APIBase + "/messages",
+		Summary:     "Read the guestbook wall",
+		Description: "The most recent messages guests have left, newest first, for the wall on the site.",
+		Tags:        []string{"messages"},
+	}, func(ctx context.Context, _ *struct{}) (*MessageWallOutput, error) {
+		found, err := svc.ListPublic(ctx)
+		if err != nil {
+			slog.ErrorContext(ctx, "list public messages failed", "error", err)
+			return nil, huma.Error500InternalServerError("Não conseguimos carregar os recados agora.")
+		}
+		out := &MessageWallOutput{}
+		// Never nil: an empty wall must serialize as [] and not null, or the
+		// site has to defend against both.
+		out.Body.Messages = make([]PublicMessage, 0, len(found))
+		for _, m := range found {
+			out.Body.Messages = append(out.Body.Messages, PublicMessage{
+				MessageID:  m.ID.String(),
+				AuthorName: m.AuthorName,
+				Body:       m.Body,
+				CreatedAt:  m.CreatedAt.Format(time.RFC3339),
+			})
+		}
+		return out, nil
+	})
+
 	huma.Register(api, huma.Operation{
 		OperationID:   "create-message",
 		Method:        http.MethodPost,

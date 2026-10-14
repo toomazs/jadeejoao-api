@@ -12,7 +12,10 @@ import (
 	"github.com/jadeejoao/jadeejoao-api/internal/platform"
 )
 
-type stubRepo struct{ inserted Message }
+type stubRepo struct {
+	inserted    Message
+	publicLimit int32
+}
 
 func (r *stubRepo) Insert(_ context.Context, groupID *uuid.UUID, authorName, body string) (Message, error) {
 	r.inserted = Message{
@@ -25,6 +28,11 @@ func (r *stubRepo) Insert(_ context.Context, groupID *uuid.UUID, authorName, bod
 	return r.inserted, nil
 }
 func (r *stubRepo) List(context.Context) ([]Message, error) { return nil, nil }
+func (r *stubRepo) ListPublic(_ context.Context, limit int32) ([]Message, error) {
+	r.publicLimit = limit
+	return nil, nil
+}
+func (r *stubRepo) Delete(context.Context, uuid.UUID) error { return nil }
 
 type fakeMailer struct {
 	sent     chan [2]string

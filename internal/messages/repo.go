@@ -54,6 +54,31 @@ func (r *pgRepo) List(ctx context.Context) ([]Message, error) {
 	return out, nil
 }
 
+func (r *pgRepo) ListPublic(ctx context.Context, limit int32) ([]Message, error) {
+	rows, err := r.q.ListPublicMessages(ctx, limit)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]Message, len(rows))
+	for i, row := range rows {
+		// No group here, and deliberately: which invitation a guest belongs to
+		// is the couple's business, and this list is read by anyone.
+		out[i] = Message{ID: row.ID, AuthorName: row.AuthorName, Body: row.Body, CreatedAt: row.CreatedAt}
+	}
+	return out, nil
+}
+
+func (r *pgRepo) Delete(ctx context.Context, id uuid.UUID) error {
+	rows, err := r.q.DeleteMessage(ctx, id)
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
 func fromRow(id uuid.UUID, groupID uuid.NullUUID, author, body string, createdAt time.Time) Message {
 	m := Message{ID: id, AuthorName: author, Body: body, CreatedAt: createdAt}
 	if groupID.Valid {

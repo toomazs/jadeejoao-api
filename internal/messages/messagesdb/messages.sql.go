@@ -84,3 +84,55 @@ func (q *Queries) ListMessages(ctx context.Context) ([]ListMessagesRow, error) {
 	}
 	return items, nil
 }
+
+const listPublicMessages = `-- name: ListPublicMessages :many
+select id, author_name, body, created_at
+from messages
+order by created_at desc
+limit $1
+`
+
+type ListPublicMessagesRow struct {
+	ID         uuid.UUID
+	AuthorName string
+	Body       string
+	CreatedAt  time.Time
+}
+
+func (q *Queries) ListPublicMessages(ctx context.Context, limit int32) ([]ListPublicMessagesRow, error) {
+	rows, err := q.db.Query(ctx, listPublicMessages, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListPublicMessagesRow{}
+	for rows.Next() {
+		var i ListPublicMessagesRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.AuthorName,
+			&i.Body,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const deleteMessage = `-- name: DeleteMessage :execrows
+delete from messages
+where id = $1
+`
+
+func (q *Queries) DeleteMessage(ctx context.Context, id uuid.UUID) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteMessage, id)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}

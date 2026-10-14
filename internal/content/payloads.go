@@ -84,6 +84,20 @@ type HeroPayload struct {
 	EventDate    string `json:"event_date" format:"date" example:"2027-08-07" doc:"Dia do casamento."`
 	CityLabel    string `json:"city_label" example:"Atibaia – SP"`
 	HeroImageURL string `json:"hero_image_url,omitempty" format:"uri" doc:"The full-bleed photograph behind the wordmark."`
+	// FocusX/FocusY say which point of the photograph must stay in frame, in
+	// percent of its own width and height.
+	//
+	// The photograph is cropped to 16:9 on the way in and shown in whatever
+	// shape the screen is. On a desk those are nearly the same and almost
+	// nothing is lost; on a phone the window is taller than it is wide and
+	// around a quarter of the picture's width survives. Which quarter was the
+	// middle, by default, and the middle of a photograph of two people is
+	// frequently neither of them.
+	//
+	// Zero means unset, and the site reads that as the middle — so a payload
+	// written before this existed still behaves exactly as it did.
+	FocusX float64 `json:"focus_x,omitempty" minimum:"0" maximum:"100" doc:"Ponto da foto que deve permanecer visível, em porcentagem da largura."`
+	FocusY float64 `json:"focus_y,omitempty" minimum:"0" maximum:"100" doc:"Ponto da foto que deve permanecer visível, em porcentagem da altura."`
 }
 
 // CeremonyHour is when the day starts, in the venue's timezone. Fixed here
